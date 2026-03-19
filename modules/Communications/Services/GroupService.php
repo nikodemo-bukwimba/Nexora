@@ -1,0 +1,203 @@
+<?php
+
+namespace Modules\Communications\Services;
+
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Modules\Communications\Models\Group;
+use Modules\Communications\Models\GroupMessage;
+use Modules\Communications\Models\GroupParticipant;
+use Modules\Communications\Models\MessageReaction;
+use Modules\Communications\Models\MessageReceipt;
+
+class GroupService
+{
+    public function create(string $createdBy, array $data): Group
+    {
+        return DB::connection('communications')->transaction(function () use ($createdBy, $data) {
+
+            $group = Group::create([
+                'name'       => $data['name'],
+                'description' => $data['description'] ?? null,
+                'created_by' => $createdBy,
+                'org_id'     => $data['org_id'] ?? null,
+                'type'       => $data['type'] ?? 'group',
+                'status'     => 'active',
+            ]);
+
+            // Add creator as super_admin
+            GroupParticipant::create([
+                'group_id'  => $group->id,
+                'actor_id'  => $createdBy,
+                'role'      => 'super_admin',
+                'status'    => 'active',
+                'added_by'  => $createdBy,
+            ]);
+
+            // Add initial participants
+            foreach ($data['participant_ids'] ?? [] as $actorId) {
+                if ($actorId === $createdBy) continue;
+                GroupParticipant::create([
+                    'group_id' => $group->id,
+                    'actor_id' => $actorId,
+                    'role'     => 'member',
+                    'status'   => 'active',
+                    'added_by' => $createdBy,
+                ]);
+            }
+
+            // System message: group created
+            $this->sendSystemMessage($group->id, $createdBy, 'group_created', "Group created");
+
+            return $group->fresh(['participants']);
+        });
+    }
+
+    public function get(string $id): Group
+    {
+        return Group::with(['participants'])->findOrFail($id);
+    }
+
+    public function addParticipant(string $groupId, string $actorId, string $addedBy): GroupParticipant
+    {
+        $group = Group::findOrFail($groupId);
+
+        if (! $group->isAdmin($addedBy)) {
+            throw new \RuntimeException('Only admins can add participants.');
+        }
+
+        $participant = GroupParticipant::updateOrCreate(
+            ['group_id' => $groupId, 'actor_id' => $actorId],
+            ['status' => 'active', 'added_by' => $addedBy, 'role' => 'member']
+        );
+
+        $this->sendSystemMessage($groupId, $actorId, 'member_joined', null);
+
+        return $participant;
+    }
+
+    public function removeParticipant(string $groupId, string $actorId, string $removedBy): void
+    {
+        $group = Group::findOrFail($groupId);
+
+        if ($actorId !== $removedBy && ! $group->isAdmin($removedBy)) {
+            throw new \RuntimeException('Only admins can remove participants.');
+        }
+
+        GroupParticipant::where('group_id', $groupId)
+            ->where('actor_id', $actorId)
+            ->update(['status' => 'left', 'left_at' => now()]);
+
+        $event = $actorId === $removedBy ? 'member_left' : 'member_removed';
+        $this->sendSystemMessage($groupId, $actorId, $event, null);
+    }
+
+    public function promoteToAdmin(string $groupId, string $actorId, string $promotedBy): GroupParticipant
+    {
+        $group = Group::findOrFail($groupId);
+        if (! $group->isAdmin($promotedBy)) {
+            throw new \RuntimeException('Only admins can promote members.');
+        }
+
+        $participant = GroupParticipant::where('group_id', $groupId)
+            ->where('actor_id', $actorId)
+            ->firstOrFail();
+
+        $participant->update(['role' => 'admin']);
+        return $participant->fresh();
+    }
+
+    public function send(string $groupId, string $senderActorId, array $data): GroupMessage
+    {
+        $group = Group::findOrFail($groupId);
+
+        if (! $group->hasParticipant($senderActorId)) {
+            throw new \RuntimeException('You are not a participant of this group.');
+        }
+
+        if ($group->only_admins_can_message && ! $group->isAdmin($senderActorId)) {
+            throw new \RuntimeException('Only admins can send messages in this group.');
+        }
+
+        return DB::connection('communications')->transaction(function () use ($groupId, $senderActorId, $data, $group) {
+
+            $message = GroupMessage::create([
+                'group_id'         => $groupId,
+                'sender_actor_id'  => $senderActorId,
+                'content'          => $data['content'] ?? null,
+                'content_type'     => $data['content_type'] ?? 'text',
+                'reply_to_id'      => $data['reply_to_id'] ?? null,
+                'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
+                'forwarded'        => isset($data['forwarded_from_id']),
+                'latitude'         => $data['latitude'] ?? null,
+                'longitude'        => $data['longitude'] ?? null,
+            ]);
+
+            $group->update([
+                'last_message_id' => $message->id,
+                'last_message_at' => now(),
+            ]);
+
+            return $message->fresh(['attachments', 'reactions']);
+        });
+    }
+
+    public function getMessages(string $groupId, int $perPage): LengthAwarePaginator
+    {
+        return GroupMessage::where('group_id', $groupId)
+            ->where('deleted_for_everyone', false)
+            ->with(['attachments', 'reactions', 'replyTo', 'receipts'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
+    }
+
+    public function markRead(string $groupId, string $actorId): void
+    {
+        $unread = GroupMessage::where('group_id', $groupId)
+            ->where('sender_actor_id', '!=', $actorId)
+            ->pluck('id');
+
+        foreach ($unread as $messageId) {
+            MessageReceipt::updateOrCreate(
+                ['message_type' => 'GroupMessage', 'message_id' => $messageId, 'actor_id' => $actorId],
+                ['read_at' => now(), 'delivered_at' => now()]
+            );
+        }
+    }
+
+    public function react(string $messageId, string $actorId, string $emoji): void
+    {
+        MessageReaction::updateOrCreate(
+            ['message_type' => 'GroupMessage', 'message_id' => $messageId, 'actor_id' => $actorId],
+            ['emoji' => $emoji]
+        );
+    }
+
+    public function deleteForEveryone(string $messageId, string $actorId): void
+    {
+        $message = GroupMessage::findOrFail($messageId);
+        $group   = Group::find($message->group_id);
+
+        if ($message->sender_actor_id !== $actorId && ! $group->isAdmin($actorId)) {
+            throw new \RuntimeException('Only the sender or admins can delete messages for everyone.');
+        }
+
+        $message->update([
+            'deleted_for_everyone' => true,
+            'content'              => null,
+            'deleted_at'           => now(),
+        ]);
+    }
+
+    private function sendSystemMessage(string $groupId, string $actorId, string $event, ?string $content): void
+    {
+        GroupMessage::create([
+            'group_id'        => $groupId,
+            'sender_actor_id' => $actorId,
+            'content'         => $content,
+            'content_type'    => 'text',
+            'is_system_message' => true,
+            'system_event'    => $event,
+        ]);
+    }
+}

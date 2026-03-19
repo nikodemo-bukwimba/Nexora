@@ -1,0 +1,31 @@
+<?php
+
+namespace Modules\Platform\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rules\Password;
+
+class ApiRegisterRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'username'    => ['required', 'string', 'min:3', 'max:50', 'unique:platform.users,username', 'regex:/^[a-zA-Z0-9_]+$/'],
+            'email'       => ['required', 'string', 'email', 'max:255', 'unique:platform.users,email'],
+            'password'    => ['required', 'confirmed', Password::defaults()],
+            'device_name' => ['nullable', 'string', 'max:100'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'username.regex' => 'Username may only contain letters, numbers, and underscores.',
+        ];
+    }
+}
