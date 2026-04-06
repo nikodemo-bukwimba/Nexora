@@ -67,4 +67,53 @@ class DirectMessageController extends Controller
         $this->dms->react($messageId, $request->user()->actor_id, $request->emoji);
         return response()->json(['message' => 'Reaction added.']);
     }
+
+        /** GET /api/v1/communications/conversations/{id} */
+    public function show(string $conversationId): JsonResponse
+    {
+        return response()->json($this->dms->getConversation($conversationId));
+    }
+
+    /** POST /api/v1/communications/conversations/{id}/close */
+    public function close(Request $request, string $conversationId): JsonResponse
+    {
+        $this->dms->close($conversationId, $request->user()->actor_id);
+        return response()->json(['message' => 'Conversation closed.']);
+    }
+
+    /** POST /api/v1/communications/conversations/{id}/reopen */
+    public function reopen(Request $request, string $conversationId): JsonResponse
+    {
+        $this->dms->reopen($conversationId, $request->user()->actor_id);
+        return response()->json(['message' => 'Conversation reopened.']);
+    }
+
+    /** PATCH /api/v1/communications/messages/dm/{id} */
+    public function editMessage(Request $request, string $messageId): JsonResponse
+    {
+        $request->validate(['content' => ['required', 'string']]);
+        $message = $this->dms->editMessage($messageId, $request->user()->actor_id, $request->content);
+        return response()->json(['message' => 'Message updated.', 'data' => $message]);
+    }
+
+    /** POST /api/v1/communications/messages/dm/{id}/pin */
+    public function pinMessage(Request $request, string $messageId): JsonResponse
+    {
+        $result = $this->dms->togglePin($messageId, $request->user()->actor_id);
+        return response()->json(['message' => $result ? 'Message pinned.' : 'Message unpinned.']);
+    }
+
+    /** POST /api/v1/communications/messages/dm/{id}/star */
+    public function starMessage(Request $request, string $messageId): JsonResponse
+    {
+        $result = $this->dms->toggleStar($messageId, $request->user()->actor_id);
+        return response()->json(['message' => $result ? 'Message starred.' : 'Message unstarred.']);
+    }
+
+    /** GET /api/v1/communications/messages/dm/{id}/receipts */
+    public function receipts(Request $request, string $messageId): JsonResponse
+    {
+        $receipts = $this->dms->getReadReceipts($messageId);
+        return response()->json(['receipts' => $receipts]);
+    }
 }

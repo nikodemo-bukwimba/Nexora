@@ -11,10 +11,27 @@ class BasketService
 {
     public function getOrCreate(string $buyerActorId): Basket
     {
-        return Basket::firstOrCreate(
-            ['buyer_actor_id' => $buyerActorId, 'status' => 'active'],
-            ['buyer_actor_id' => $buyerActorId, 'status' => 'active']
-        );
+        // First try to find existing active basket
+        $basket = Basket::where('buyer_actor_id', $buyerActorId)
+                        ->where('status', 'active')
+                        ->first();
+
+        if ($basket) {
+            return $basket;
+        }
+
+        // Create only if none exists
+        try {
+            return Basket::create([
+                'buyer_actor_id' => $buyerActorId,
+                'status'         => 'active',
+            ]);
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Another request created it — just fetch it
+            return Basket::where('buyer_actor_id', $buyerActorId)
+                        ->where('status', 'active')
+                        ->firstOrFail();
+        }
     }
 
     public function getWithItems(string $buyerActorId): Basket

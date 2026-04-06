@@ -81,4 +81,53 @@ class GroupController extends Controller
         $this->groups->deleteForEveryone($messageId, $request->user()->actor_id);
         return response()->json(['message' => 'Deleted for everyone.']);
     }
+
+        /** GET /api/v1/communications/groups */
+    public function index(Request $request): JsonResponse
+    {
+        return response()->json($this->groups->listForActor($request->user()->actor_id));
+    }
+
+    /** POST /api/v1/communications/groups/{id}/close */
+    public function close(Request $request, string $id): JsonResponse
+    {
+        $this->groups->close($id, $request->user()->actor_id);
+        return response()->json(['message' => 'Group closed.']);
+    }
+
+    /** POST /api/v1/communications/groups/{id}/reopen */
+    public function reopen(Request $request, string $id): JsonResponse
+    {
+        $this->groups->reopen($id, $request->user()->actor_id);
+        return response()->json(['message' => 'Group reopened.']);
+    }
+
+    /** PATCH /api/v1/communications/messages/group/{messageId} */
+    public function editMessage(Request $request, string $messageId): JsonResponse
+    {
+        $request->validate(['content' => ['required', 'string']]);
+        $message = $this->groups->editMessage($messageId, $request->user()->actor_id, $request->content);
+        return response()->json(['message' => 'Message updated.', 'data' => $message]);
+    }
+
+    /** POST /api/v1/communications/messages/group/{messageId}/pin */
+    public function pinMessage(Request $request, string $messageId): JsonResponse
+    {
+        $result = $this->groups->togglePin($messageId, $request->user()->actor_id);
+        return response()->json(['message' => $result ? 'Message pinned.' : 'Message unpinned.']);
+    }
+
+    /** POST /api/v1/communications/messages/group/{messageId}/star */
+    public function starMessage(Request $request, string $messageId): JsonResponse
+    {
+        $result = $this->groups->toggleStar($messageId, $request->user()->actor_id);
+        return response()->json(['message' => $result ? 'Message starred.' : 'Message unstarred.']);
+    }
+
+    /** GET /api/v1/communications/messages/group/{messageId}/receipts */
+    public function receipts(Request $request, string $messageId): JsonResponse
+    {
+        $receipts = $this->groups->getReadReceipts($messageId);
+        return response()->json(['receipts' => $receipts]);
+    }
 }

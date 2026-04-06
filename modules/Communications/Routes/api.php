@@ -18,6 +18,13 @@ Route::middleware('auth:sanctum')->prefix('communications')->name('communication
     Route::delete('messages/dm/{id}/me', [DirectMessageController::class, 'deleteForMe'])->name('messages.dm.delete-me');
     Route::delete('messages/dm/{id}/everyone', [DirectMessageController::class, 'deleteForEveryone'])->name('messages.dm.delete-everyone');
     Route::post('messages/dm/{id}/react', [DirectMessageController::class, 'react'])->name('messages.dm.react');
+    Route::get('conversations/{id}', [DirectMessageController::class, 'show'])->name('conversations.show');
+    Route::post('conversations/{id}/close', [DirectMessageController::class, 'close'])->name('conversations.close');
+    Route::post('conversations/{id}/reopen', [DirectMessageController::class, 'reopen'])->name('conversations.reopen');
+    Route::patch('messages/dm/{id}', [DirectMessageController::class, 'editMessage'])->name('messages.dm.edit');
+    Route::post('messages/dm/{id}/pin', [DirectMessageController::class, 'pinMessage'])->name('messages.dm.pin');
+    Route::post('messages/dm/{id}/star', [DirectMessageController::class, 'starMessage'])->name('messages.dm.star');
+    Route::get('messages/dm/{id}/receipts', [DirectMessageController::class, 'receipts'])->name('messages.dm.receipts');
 
     // ── Groups ─────────────────────────────────────────────────
     Route::post('groups', [GroupController::class, 'store'])->name('groups.store');
@@ -30,6 +37,13 @@ Route::middleware('auth:sanctum')->prefix('communications')->name('communication
     Route::post('groups/{id}/participants/{actorId}/promote', [GroupController::class, 'promote'])->name('groups.participants.promote');
     Route::delete('messages/group/{messageId}/everyone', [GroupController::class, 'deleteForEveryone'])->name('messages.group.delete-everyone');
     Route::post('messages/group/{messageId}/react', [GroupController::class, 'react'])->name('messages.group.react');
+    Route::get('groups', [GroupController::class, 'index'])->name('groups.index');
+    Route::post('groups/{id}/close', [GroupController::class, 'close'])->name('groups.close');
+    Route::post('groups/{id}/reopen', [GroupController::class, 'reopen'])->name('groups.reopen');
+    Route::patch('messages/group/{messageId}', [GroupController::class, 'editMessage'])->name('messages.group.edit');
+    Route::post('messages/group/{messageId}/pin', [GroupController::class, 'pinMessage'])->name('messages.group.pin');
+    Route::post('messages/group/{messageId}/star', [GroupController::class, 'starMessage'])->name('messages.group.star');
+    Route::get('messages/group/{messageId}/receipts', [GroupController::class, 'receipts'])->name('messages.group.receipts');
 
     // ── Broadcasts ─────────────────────────────────────────────
     Route::get('broadcasts', [BroadcastController::class, 'index'])->name('broadcasts.index');

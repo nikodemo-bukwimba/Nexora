@@ -48,7 +48,10 @@ class PlatformServiceProvider extends ServiceProvider
         // ── Migrations ─────────────────────────────────────────
         $this->loadMigrationsFrom(__DIR__ . '/../Database/Migrations');
 
-        // ── Middleware ─────────────────────────────────────────
+        // ── Views (for email templates) ── NEW ─────────────────
+        $this->loadViewsFrom(__DIR__ . '/../Resources/views', 'platform');
+
+        // ── Middleware ──────────────────────────────────────────
         $this->app['router']->aliasMiddleware('platform.admin', PlatformAdminMiddleware::class);
 
         // ── Routes ─────────────────────────────────────────────
@@ -70,7 +73,6 @@ class PlatformServiceProvider extends ServiceProvider
 
     private function registerCoreEvents(): void
     {
-        // Only register if DB is available (skip during migrations)
         try {
             $bus = $this->app->make(EventBusInterface::class);
             $events = [

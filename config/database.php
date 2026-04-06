@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use Illuminate\Support\Str;
 use Pdo\Mysql;
@@ -31,7 +31,7 @@ return [
     */
     'connections' => [
 
-        // ── Platform Core ──────────────────────────────
+        // â”€â”€ Platform Core â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'platform' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -42,11 +42,11 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'platform',
+            'search_path' => 'platform,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
-        // ── Finance ────────────────────────────────────
+        // â”€â”€ Finance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'finance' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -57,11 +57,11 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'finance',
+            'search_path' => 'finance,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
-        // ── Commerce ───────────────────────────────────
+        // â”€â”€ Commerce â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'commerce' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -72,11 +72,11 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'commerce',
+            'search_path' => 'commerce,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
-        // ── Inventory ──────────────────────────────────
+        // â”€â”€ Inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'inventory' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -87,11 +87,11 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'inventory',
+            'search_path' => 'inventory,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
-        // ── Communications ─────────────────────────────
+        // â”€â”€ Communications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'communications' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -102,7 +102,7 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'communications',
+            'search_path' => 'communications,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
@@ -116,10 +116,10 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'notifications',
+            'search_path' => 'notifications,public',
             'sslmode' => 'prefer'
         ],
-        // ── Workflow ───────────────────────────────────
+        // â”€â”€ Workflow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'workflow' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -130,13 +130,13 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'workflow',
+            'search_path' => 'workflow,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
-        // ── Notifications ──────────────────────────────
+        // â”€â”€ Notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-        // ── Reporting ──────────────────────────────────
+        // â”€â”€ Reporting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         'reporting' => [
             'driver' => 'pgsql',
             'host' => env('DB_HOST', '127.0.0.1'),
@@ -147,7 +147,7 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'reporting',
+            'search_path' => 'reporting,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
         
@@ -161,7 +161,7 @@ return [
             'charset' => 'utf8',
             'prefix' => '',
             'prefix_indexes' => true,
-            'search_path' => 'pharma_marketing',
+            'search_path' => 'pharma_marketing,public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
@@ -319,3 +319,4 @@ return [
     ],
 
 ];
+

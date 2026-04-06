@@ -33,6 +33,17 @@ class ProductUpdateService
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }
+    public function patch(string $id, array $data): ProductUpdate
+    {
+        $update = ProductUpdate::findOrFail($id);
+        $update->update(array_intersect_key($data, array_flip([
+            'title', 'body', 'update_type', 'target_segment', 'target_filters',
+            'send_in_app', 'send_whatsapp', 'send_sms',
+            'product_ids', 'media_url', 'media_type',
+            'status', 'scheduled_at', 'metadata',
+        ])));
+        return $update->fresh();
+    }
 
     /**
      * Publish a product update — resolve target customers and dispatch delivery jobs.

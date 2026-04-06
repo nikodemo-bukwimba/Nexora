@@ -25,7 +25,7 @@ class ProductUpdateDelivery extends PharmaModel
         ];
     }
 
-    public function update(): BelongsTo
+    public function productUpdate(): BelongsTo
     {
         return $this->belongsTo(ProductUpdate::class, 'product_update_id');
     }

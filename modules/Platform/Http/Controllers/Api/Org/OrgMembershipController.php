@@ -5,9 +5,14 @@ namespace Modules\Platform\Http\Controllers\Api\Org;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Mail;
 use Modules\Platform\Contracts\Services\OrganizationServiceInterface;
 use Modules\Platform\Http\Requests\Org\InviteMemberRequest;
 use Modules\Platform\Http\Requests\Org\UpdateMemberRequest;
+use Modules\Platform\Mail\OrgInvitationMail;
+use Modules\Platform\Models\OrgMembership;
+use Modules\Platform\Models\OrgRole;
+use Modules\Platform\Models\Organization;
 
 class OrgMembershipController extends Controller
 {
@@ -33,9 +38,98 @@ class OrgMembershipController extends Controller
             $request->user()->id
         );
 
+        // ── Send invitation email ─────────────────────────────
+        try {
+            $org = Organization::find($orgId);
+            $inviterName = $request->user()->name
+                ?? $request->user()->username
+                ?? $request->user()->email;
+
+            $invitation->load('role');
+
+            Mail::to($request->email)->send(
+                new OrgInvitationMail(
+                    invitation: $invitation,
+                    orgName: $org->name ?? 'Organization',
+                    inviterName: $inviterName,
+                )
+            );
+        } catch (\Throwable $e) {
+            \Log::warning("Failed to send invitation email to {$request->email}: {$e->getMessage()}");
+        }
+
         return response()->json([
             'message'    => 'Invitation sent.',
             'invitation' => $invitation,
+        ], 201);
+    }
+
+    /**
+     * POST /api/v1/orgs/{orgId}/members/assign — NEW
+     *
+     * Directly assign an existing root org member to a branch.
+     * No invitation required — the user is already a verified member
+     * of the org tree. Creates an active membership at the branch.
+     */
+    public function assign(Request $request, string $orgId): JsonResponse
+    {
+        $request->validate([
+            'user_id'     => ['required', 'string', 'size:26'],
+            'org_role_id' => ['required', 'string', 'size:26'],
+            'level'       => ['sometimes', 'integer', 'min:0', 'max:100'],
+        ]);
+
+        $branch = Organization::findOrFail($orgId);
+
+        // Must be a branch, not root
+        if ($branch->type === 'root') {
+            return response()->json([
+                'message' => 'Use the invite endpoint for root org members.',
+            ], 422);
+        }
+
+        // Verify the user is an active member of the root org
+        $rootOrgId = $branch->root_org_id;
+        $rootMembership = OrgMembership::where('user_id', $request->user_id)
+            ->where('org_id', $rootOrgId)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$rootMembership) {
+            return response()->json([
+                'message' => 'User must be an active member of the root organization first.',
+            ], 422);
+        }
+
+        // Check if already assigned to this branch
+        $existing = OrgMembership::where('user_id', $request->user_id)
+            ->where('org_id', $orgId)
+            ->where('status', 'active')
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'message' => 'User is already a member of this branch.',
+            ], 422);
+        }
+
+        // Verify role exists
+        OrgRole::findOrFail($request->org_role_id);
+
+        // Create active membership directly
+        $membership = OrgMembership::create([
+            'user_id'     => $request->user_id,
+            'org_id'      => $orgId,
+            'org_role_id' => $request->org_role_id,
+            'level'       => $request->level ?? $rootMembership->level,
+            'invited_by'  => $request->user()->id,
+            'status'      => 'active',
+            'joined_at'   => now(),
+        ]);
+
+        return response()->json([
+            'message'    => 'Member assigned to branch.',
+            'membership' => $membership->fresh(['user', 'orgRole']),
         ], 201);
     }
 

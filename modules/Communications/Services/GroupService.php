@@ -200,4 +200,74 @@ class GroupService
             'system_event'    => $event,
         ]);
     }
+
+    public function listForActor(string $actorId): \Illuminate\Support\Collection
+    {
+        return Group::whereHas('participants', fn($q) =>
+            $q->where('actor_id', $actorId)->where('status', 'active')
+        )->with(['participants'])->orderBy('last_message_at', 'desc')->get();
+    }
+
+    public function close(string $groupId, string $actorId): void
+    {
+        $group = Group::findOrFail($groupId);
+        if (! $group->isAdmin($actorId)) {
+            throw new \RuntimeException('Only admins can close the group.');
+        }
+        $group->update(['status' => 'closed', 'closed_by' => $actorId, 'closed_at' => now()]);
+    }
+
+    public function reopen(string $groupId, string $actorId): void
+    {
+        $group = Group::findOrFail($groupId);
+        if (! $group->isAdmin($actorId)) {
+            throw new \RuntimeException('Only admins can reopen the group.');
+        }
+        $group->update(['status' => 'active', 'closed_by' => null, 'closed_at' => null]);
+    }
+
+    public function editMessage(string $messageId, string $actorId, string $content): GroupMessage
+    {
+        $message = GroupMessage::findOrFail($messageId);
+        $group   = Group::find($message->group_id);
+        if ($message->sender_actor_id !== $actorId && ! $group->isAdmin($actorId)) {
+            throw new \RuntimeException('Only the sender or admins can edit messages.');
+        }
+        $message->update(['content' => $content, 'edited_at' => now()]);
+        return $message->fresh();
+    }
+
+    public function togglePin(string $messageId, string $actorId): bool
+    {
+        $message = GroupMessage::findOrFail($messageId);
+        $group   = Group::find($message->group_id);
+        if (! $group->isAdmin($actorId)) {
+            throw new \RuntimeException('Only admins can pin messages.');
+        }
+        $pinned = !$message->is_pinned;
+        $message->update(['is_pinned' => $pinned]);
+        return $pinned;
+    }
+
+    public function toggleStar(string $messageId, string $actorId): bool
+    {
+        $message = GroupMessage::findOrFail($messageId);
+        $starred = !$message->is_starred;
+        $message->update(['is_starred' => $starred]);
+        return $starred;
+    }
+
+    public function getReadReceipts(string $messageId): \Illuminate\Support\Collection
+    {
+        return MessageReceipt::where('message_type', 'GroupMessage')
+            ->where('message_id', $messageId)
+            ->whereNotNull('read_at')
+            ->with('actor')
+            ->get()
+            ->map(fn($r) => [
+                'actor_id' => $r->actor_id,
+                'name'     => $r->actor?->display_name ?? $r->actor_id,
+                'read_at'  => $r->read_at,
+            ]);
+    }
 }

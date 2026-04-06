@@ -21,6 +21,10 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
+
+        $middleware->appendToGroup('api',
+            \Modules\Platform\Http\Middleware\ActivityLogMiddleware::class
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

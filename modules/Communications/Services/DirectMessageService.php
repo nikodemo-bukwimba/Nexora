@@ -108,4 +108,58 @@ class DirectMessageService
             ['emoji' => $emoji]
         );
     }
+
+    public function getConversation(string $conversationId): DirectConversation
+    {
+        return DirectConversation::findOrFail($conversationId);
+    }
+
+    public function close(string $conversationId, string $actorId): void
+    {
+        $conv = DirectConversation::findOrFail($conversationId);
+        $conv->update(['status' => 'closed', 'closed_by' => $actorId, 'closed_at' => now()]);
+    }
+
+    public function reopen(string $conversationId, string $actorId): void
+    {
+        $conv = DirectConversation::findOrFail($conversationId);
+        $conv->update(['status' => 'active', 'closed_by' => null, 'closed_at' => null]);
+    }
+
+    public function editMessage(string $messageId, string $actorId, string $content): DirectMessage
+    {
+        $message = DirectMessage::where('sender_actor_id', $actorId)->findOrFail($messageId);
+        $message->update(['content' => $content, 'edited_at' => now()]);
+        return $message->fresh();
+    }
+
+    public function togglePin(string $messageId, string $actorId): bool
+    {
+        $message = DirectMessage::findOrFail($messageId);
+        $pinned = !$message->is_pinned;
+        $message->update(['is_pinned' => $pinned]);
+        return $pinned;
+    }
+
+    public function toggleStar(string $messageId, string $actorId): bool
+    {
+        $message = DirectMessage::findOrFail($messageId);
+        $starred = !$message->is_starred;
+        $message->update(['is_starred' => $starred]);
+        return $starred;
+    }
+
+    public function getReadReceipts(string $messageId): \Illuminate\Support\Collection
+    {
+        return \Modules\Communications\Models\MessageReceipt::where('message_type', 'DirectMessage')
+            ->where('message_id', $messageId)
+            ->whereNotNull('read_at')
+            ->with('actor')
+            ->get()
+            ->map(fn($r) => [
+                'actor_id' => $r->actor_id,
+                'name'     => $r->actor?->display_name ?? $r->actor_id,
+                'read_at'  => $r->read_at,
+            ]);
+    }
 }

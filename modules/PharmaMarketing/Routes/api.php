@@ -39,6 +39,10 @@ Route::middleware('auth:sanctum')->prefix('pharma')->name('pharma.')->group(func
     Route::get('product-updates/{id}',              [ProductUpdateController::class, 'show'])->name('product-updates.show');
     Route::post('product-updates/{id}/publish',     [ProductUpdateController::class, 'publish'])->name('product-updates.publish');
     Route::get('product-updates/{id}/stats',        [ProductUpdateController::class, 'stats'])->name('product-updates.stats');
+    Route::get('product-updates/{id}',              [ProductUpdateController::class, 'show'])->name('product-updates.show');
+    Route::patch('product-updates/{id}',            [ProductUpdateController::class, 'update'])->name('product-updates.update');
+    Route::post('product-updates/{id}/publish',     [ProductUpdateController::class, 'publish'])->name('product-updates.publish');
+    Route::get('product-updates/{id}/stats',        [ProductUpdateController::class, 'stats'])->name('product-updates.stats');
 
     // ── Daily Reports ──────────────────────────────────────────
     Route::get('orgs/{orgId}/reports',              [DailyReportController::class, 'index'])->name('reports.index');

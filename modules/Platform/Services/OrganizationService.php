@@ -144,11 +144,14 @@ class OrganizationService implements OrganizationServiceInterface
 
     public function getOrgTree(string $rootOrgId): Collection
     {
-        // Use ltree path prefix to get all descendants
         return Organization::whereRaw(
             "path <@ (SELECT path FROM organizations WHERE id = ?)",
             [$rootOrgId]
-        )->with('actor')->orderBy('depth')->orderBy('name')->get();
+        )->with('actor')
+        ->withCount('memberships')
+        ->orderBy('depth')
+        ->orderBy('name')
+        ->get();
     }
 
     public function updateOrg(string $id, array $data, string $userId): Organization

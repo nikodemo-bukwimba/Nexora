@@ -33,4 +33,6 @@ Route::middleware('auth:sanctum')->prefix('commerce')->name('commerce.')->group(
     Route::post('orders/{id}/cancel',                   [OrderController::class, 'cancel'])->name('orders.cancel');
     Route::post('orders/{id}/returns',                  [OrderController::class, 'requestReturn'])->name('orders.returns.request');
     Route::post('orders/{id}/returns/{returnId}/approve', [OrderController::class, 'approveReturn'])->name('orders.returns.approve');
+    Route::post('orgs/{orgId}/orders/admin',             [OrderController::class, 'adminStore'])->name('orders.admin.store');
+    Route::patch('orders/{id}', [OrderController::class, 'markPaid'])->name('orders.markPaid');
 });

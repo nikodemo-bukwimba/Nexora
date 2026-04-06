@@ -33,6 +33,17 @@ class ProductUpdateController extends Controller
     {
         return response()->json($this->updates->get($id));
     }
+        /** PATCH /api/v1/pharma/product-updates/{id} */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        $request->validate([
+            'title'   => ['sometimes', 'string', 'max:255'],
+            'body'    => ['sometimes', 'string'],
+            'status'  => ['sometimes', 'string', 'in:draft,sending,sent,failed'],
+        ]);
+        $update = $this->updates->patch($id, $request->all());
+        return response()->json(['message' => 'Product update updated.', 'update' => $update]);
+    }
 
     /** POST /api/v1/pharma/product-updates/{id}/publish */
     public function publish(string $id): JsonResponse
