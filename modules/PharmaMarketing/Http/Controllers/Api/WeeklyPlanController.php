@@ -33,12 +33,42 @@ class WeeklyPlanController extends Controller
         return response()->json($this->plans->get($id));
     }
 
+    /** PATCH /api/v1/pharma/plans/{id} */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        $request->validate([
+            'week_start_date' => ['sometimes', 'date'],
+            'objectives'      => ['sometimes', 'nullable', 'string'],
+            'notes'           => ['sometimes', 'nullable', 'string'],
+        ]);
+        $plan = $this->plans->update($id, $request->user()->actor_id, $request->only(['week_start_date', 'objectives', 'notes']));
+        return response()->json(['message' => 'Plan updated.', 'plan' => $plan]);
+    }
+
+    /** DELETE /api/v1/pharma/plans/{id} */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $this->plans->delete($id, $request->user()->actor_id);
+        return response()->json(['message' => 'Plan deleted.']);
+    }
+
     /** POST /api/v1/pharma/plans/{id}/items */
     public function addItem(Request $request, string $id): JsonResponse
     {
-        $request->validate(['planned_date' => ['required', 'date']]);
+        $request->validate([
+            'item_type'   => ['required', 'string', 'in:customer_visit,office_work,training,meeting,promotion_event,other'],
+            'planned_date' => ['required', 'date'],
+            'customer_id' => ['required_if:item_type,customer_visit', 'nullable', 'string'],
+        ]);
         $item = $this->plans->addItem($id, $request->all());
         return response()->json(['message' => 'Item added.', 'item' => $item], 201);
+    }
+
+    /** DELETE /api/v1/pharma/plans/{planId}/items/{itemId} */
+    public function removeItem(Request $request, string $planId, string $itemId): JsonResponse
+    {
+        $this->plans->removeItem($planId, $itemId, $request->user()->actor_id);
+        return response()->json(['message' => 'Item removed.']);
     }
 
     /** POST /api/v1/pharma/plans/{id}/submit */

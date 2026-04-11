@@ -12,7 +12,7 @@ class WeeklyPlanService
     public function create(string $orgId, string $officerActorId, array $data): WeeklyPlan
     {
         return DB::connection('pharma_marketing')->transaction(function () use ($orgId, $officerActorId, $data) {
-            $weekStart = $data['week_start_date']; // expect YYYY-MM-DD Monday
+            $weekStart = $data['week_start_date'];
             $weekEnd   = date('Y-m-d', strtotime($weekStart . ' +6 days'));
 
             $plan = WeeklyPlan::create([
@@ -53,6 +53,37 @@ class WeeklyPlanService
             ->paginate($perPage);
     }
 
+    public function update(string $planId, string $officerActorId, array $data): WeeklyPlan
+    {
+        $plan = WeeklyPlan::where('officer_actor_id', $officerActorId)
+            ->whereIn('status', ['draft', 'rejected'])
+            ->findOrFail($planId);
+
+        $updates = array_filter([
+            'objectives' => $data['objectives'] ?? $plan->objectives,
+            'notes'      => $data['notes'] ?? $plan->notes,
+        ], fn($v) => $v !== null);
+
+        // Recalculate week_end_date if week_start_date is being changed
+        if (isset($data['week_start_date'])) {
+            $updates['week_start_date'] = $data['week_start_date'];
+            $updates['week_end_date']   = date('Y-m-d', strtotime($data['week_start_date'] . ' +6 days'));
+        }
+
+        $plan->update($updates);
+        return $plan->fresh(['items']);
+    }
+
+    public function delete(string $planId, string $officerActorId): void
+    {
+        $plan = WeeklyPlan::where('officer_actor_id', $officerActorId)
+            ->whereIn('status', ['draft', 'rejected'])
+            ->findOrFail($planId);
+
+        $plan->items()->delete();
+        $plan->delete();
+    }
+
     public function addItem(string $planId, array $data): WeeklyPlanItem
     {
         $plan = WeeklyPlan::findOrFail($planId);
@@ -68,14 +99,26 @@ class WeeklyPlanService
         ]));
     }
 
+    public function removeItem(string $planId, string $itemId, string $officerActorId): void
+    {
+        $plan = WeeklyPlan::where('officer_actor_id', $officerActorId)
+            ->whereIn('status', ['draft', 'rejected'])
+            ->findOrFail($planId);
+
+        $item = WeeklyPlanItem::where('plan_id', $plan->id)
+            ->findOrFail($itemId);
+
+        $item->delete();
+    }
+
     public function submit(string $planId, string $officerActorId): WeeklyPlan
     {
         $plan = WeeklyPlan::where('officer_actor_id', $officerActorId)
-            ->where('status', 'draft')
+            ->whereIn('status', ['draft', 'rejected'])
             ->findOrFail($planId);
 
         $plan->update(['status' => 'submitted', 'submitted_at' => now()]);
-        return $plan->fresh();
+        return $plan->fresh(['items']);
     }
 
     public function approve(string $planId, string $headOfficerActorId): WeeklyPlan
@@ -86,7 +129,7 @@ class WeeklyPlanService
             'approved_by' => $headOfficerActorId,
             'approved_at' => now(),
         ]);
-        return $plan->fresh();
+        return $plan->fresh(['items']);
     }
 
     public function reject(string $planId, string $headOfficerActorId, string $reason): WeeklyPlan
@@ -98,6 +141,6 @@ class WeeklyPlanService
             'rejected_at'      => now(),
             'rejection_reason' => $reason,
         ]);
-        return $plan->fresh();
+        return $plan->fresh(['items']);
     }
 }
