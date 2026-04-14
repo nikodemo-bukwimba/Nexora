@@ -24,7 +24,7 @@ class SuperAdminSeeder extends Seeder
     {
         $username = env('SUPER_ADMIN_USERNAME');
 
-        if (! $username) {
+        if (!$username) {
             $this->command->warn('  Skipped: SUPER_ADMIN_USERNAME not set in .env');
             return;
         }
@@ -34,7 +34,7 @@ class SuperAdminSeeder extends Seeder
             ->where('username', $username)
             ->first();
 
-        if (! $user) {
+        if (!$user) {
             $this->command->error("  User '{$username}' not found. Register first via the API.");
             return;
         }
@@ -44,7 +44,7 @@ class SuperAdminSeeder extends Seeder
             ->where('name', 'super_admin')
             ->first();
 
-        if (! $role) {
+        if (!$role) {
             $this->command->error('  super_admin role not found. Run db:seed first.');
             return;
         }
@@ -61,10 +61,10 @@ class SuperAdminSeeder extends Seeder
         }
 
         DB::connection('platform')->table('user_platform_roles')->insert([
-            'user_id'          => $user->id,
+            'user_id' => $user->id,
             'platform_role_id' => $role->id,
-            'granted_by'       => $user->id, // self-bootstrap
-            'granted_at'       => now(),
+            'granted_by' => $user->id, // self-bootstrap
+            'granted_at' => now(),
         ]);
 
         $this->command->info("  super_admin assigned to '{$username}' successfully.");
