@@ -27,9 +27,15 @@ class AuthService implements AuthServiceInterface
     {
         return DB::connection('platform')->transaction(function () use ($data) {
 
-            // 1. Create Actor
+            // Use 'name' if provided (from mobile app full name field),
+            // otherwise fall back to username as display name.
+            $displayName = !empty($data['name'])
+                ? trim($data['name'])
+                : $data['username'];
+
+            // 1. Create Actor — display_name is the user's real full name
             $actor = $this->actors->create([
-                'display_name' => $data['username'],
+                'display_name' => $displayName,
                 'status'       => 'active',
             ]);
 
@@ -68,7 +74,11 @@ class AuthService implements AuthServiceInterface
                 action:      'user.registered',
                 subjectType: 'User',
                 subjectId:   $user->id,
-                newValues:   ['username' => $user->username, 'email' => $user->email],
+                newValues:   [
+                    'username'     => $user->username,
+                    'email'        => $user->email,
+                    'display_name' => $displayName,
+                ],
                 actorId:     $actor->id
             );
 

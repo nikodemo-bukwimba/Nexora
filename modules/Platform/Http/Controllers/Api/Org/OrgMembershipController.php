@@ -23,7 +23,45 @@ class OrgMembershipController extends Controller
     /** GET /api/v1/orgs/{orgId}/members */
     public function index(Request $request, string $orgId): JsonResponse
     {
-        $members = $this->orgService->listMembers($orgId, (int) $request->get('per_page', 25));
+        $org = \Modules\Platform\Models\Organization::findOrFail($orgId);
+ 
+        // For root orgs: collect all org IDs in the tree so branch
+        // members also appear in the listing.
+        if ($org->type === 'root') {
+            $treeOrgIds = \Modules\Platform\Models\Organization::where(
+                    'root_org_id', $orgId
+                )
+                ->orWhere('id', $orgId)
+                ->pluck('id');
+ 
+            $members = \Modules\Platform\Models\OrgMembership::whereIn(
+                    'org_id', $treeOrgIds
+                )
+                ->with(['user.actor', 'orgRole', 'organization'])
+                ->when(
+                    $request->get('status'),
+                    fn($q, $v) => $q->where('status', $v)
+                )
+                ->when(
+                    $request->get('branch_id'),
+                    fn($q, $v) => $q->where('org_id', $v)
+                )
+                ->orderByDesc('level')
+                ->paginate((int) $request->get('per_page', 50));
+        } else {
+            // Branch: only members of this specific branch node
+            $members = \Modules\Platform\Models\OrgMembership::where(
+                    'org_id', $orgId
+                )
+                ->with(['user.actor', 'orgRole', 'organization'])
+                ->when(
+                    $request->get('status'),
+                    fn($q, $v) => $q->where('status', $v)
+                )
+                ->orderByDesc('level')
+                ->paginate((int) $request->get('per_page', 50));
+        }
+ 
         return response()->json($members);
     }
 

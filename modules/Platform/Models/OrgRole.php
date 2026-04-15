@@ -11,7 +11,7 @@ class OrgRole extends PlatformModel
     use HasUlid;
 
     protected $fillable = [
-        'root_org_id', 'name', 'source', 'default_role_id', 'is_system',
+        'root_org_id', 'name', 'slug', 'source', 'default_role_id', 'is_system',
     ];
 
     protected function casts(): array
