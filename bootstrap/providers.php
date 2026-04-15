@@ -9,5 +9,6 @@ return [
     \Modules\Commerce\Providers\CommerceServiceProvider::class,
     \Modules\Communications\Providers\CommunicationsServiceProvider::class,
     \Modules\Notifications\Providers\NotificationsServiceProvider::class,
+    \Modules\Logistics\Providers\LogisticsServiceProvider::class,
     \Modules\PharmaMarketing\Providers\PharmaMarketingServiceProvider::class,
 ];
