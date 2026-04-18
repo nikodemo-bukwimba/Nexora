@@ -139,17 +139,29 @@ class OrgMembershipController extends Controller
             ], 422);
         }
 
-        // Check if already assigned to this branch
-        $existing = OrgMembership::where('user_id', $request->user_id)
-            ->where('org_id', $orgId)
-            ->where('status', 'active')
-            ->first();
+    // Check if already assigned to this branch (any role, any status)
+    $existing = OrgMembership::where('user_id', $request->user_id)
+        ->where('org_id', $orgId)
+        ->first();  // ← removed ->where('status', 'active')
 
-        if ($existing) {
+    if ($existing) {
+        if ($existing->status === 'active') {
             return response()->json([
-                'message' => 'User is already a member of this branch.',
+                'message' => 'User is already an active member of this branch.',
             ], 422);
         }
+        // Reactivate suspended membership instead of creating duplicate
+        $existing->update([
+            'org_role_id' => $request->org_role_id,
+            'level'       => $request->level ?? $rootMembership->level,
+            'status'      => 'active',
+            'joined_at'   => now(),
+        ]);
+        return response()->json([
+            'message'    => 'Member reassigned to branch.',
+            'membership' => $existing->fresh(['user', 'orgRole']),
+        ], 200);
+    }
 
         // Verify role exists
         OrgRole::findOrFail($request->org_role_id);
@@ -197,5 +209,15 @@ class OrgMembershipController extends Controller
         );
 
         return response()->json(['message' => 'Member updated.', 'membership' => $membership]);
+    }
+    /** GET /api/v1/orgs/{orgId}/members/{userId} */
+    public function show(Request $request, string $orgId, string $userId): JsonResponse
+    {
+        $membership = \Modules\Platform\Models\OrgMembership::where('org_id', $orgId)
+            ->where('user_id', $userId)
+            ->with(['user.actor', 'orgRole', 'organization'])
+            ->firstOrFail();
+
+        return response()->json($membership);
     }
 }

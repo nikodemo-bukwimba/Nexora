@@ -40,11 +40,14 @@ class AuthController extends Controller
             $request->password,
             $request->device_name ?? 'api'
         );
+
         if (! $token) {
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
+
         $user = User::where('email', $request->email)->first();
         $this->auth->recordLogin($user, $request->ip());
+
         return response()->json(['token' => $token]);
     }
 
@@ -57,18 +60,18 @@ class AuthController extends Controller
     /**
      * GET /api/v1/auth/me
      *
-     * Returns the authenticated user with their role and permissions
-     * scoped to the requested org node.
+     * KEY FIX: The response now always includes user.org_id —
+     * the org_id of the membership used to scope permissions.
      *
-     * When org_id is supplied: returns permissions for THAT org node.
-     * When org_id is absent:   picks the user's highest-level active
-     *                          membership across ALL orgs (useful on
-     *                          first login when the client doesn't yet
-     *                          know the org_id).
+     * Without org_id:  server picks the user's highest-level active
+     *                  membership across ALL orgs. Best for first login.
      *
-     * KEY: The resolved org_id is ALWAYS echoed back in the user object
-     * so the client can persist it and use it on subsequent calls.
-     * This eliminates the need for a hardcoded org_id in the app.
+     * With org_id:     server scopes permissions to that specific org
+     *                  node. Used on refresh after client stores org_id.
+     *
+     * The client MUST persist user.org_id from the first response
+     * and send it as ?org_id= on all subsequent /auth/me calls.
+     * This is what makes branch-member permissions work correctly.
      */
     public function me(Request $request): JsonResponse
     {
@@ -94,9 +97,9 @@ class AuthController extends Controller
             ];
         }
 
-        // Always return the resolved org_id so the client can persist it.
-        // This is the critical fix: without this the client can never
-        // automatically discover which org_id to scope /auth/me to.
+        // Echo back the org_id that was resolved (from the membership).
+        // The Flutter client stores this and reuses it on every refresh.
+        // This is the fix that eliminates the hardcoded org_id on the client.
         $resolvedOrgId = $membership?->org_id;
 
         return response()->json([
@@ -108,8 +111,8 @@ class AuthController extends Controller
                 'email'        => $user->email,
                 'status'       => $user->status,
                 'is_active'    => $user->status === 'active',
-                'org_id'       => $membership?->org_id,
-                // 'org_id'       => $resolvedOrgId,   // ← KEY: echoed back
+                // KEY: echoed org_id — client persists this in OrgContext
+                'org_id'       => $resolvedOrgId,
                 'primary_role' => $rolePayload,
                 'roles'        => $rolePayload ? [$rolePayload] : [],
             ],

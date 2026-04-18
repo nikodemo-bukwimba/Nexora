@@ -37,7 +37,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('orgs/{orgId}/members',                [OrgMembershipController::class, 'index'])->name('orgs.members.index');
     Route::post('orgs/{orgId}/members/invite',        [OrgMembershipController::class, 'invite'])->name('orgs.members.invite');
     Route::post('orgs/{orgId}/members/assign',        [OrgMembershipController::class, 'assign'])->name('orgs.members.assign');  // ← NEW
-    Route::delete('orgs/{orgId}/members/{userId}',    [OrgMembershipController::class, 'remove'])->name('orgs.members.remove');
+    Route::get('orgs/{orgId}/members/{userId}',      [OrgMembershipController::class, 'show'])->name('orgs.members.show');
+    Route::delete('orgs/{orgId}/members/{userId}',   [OrgMembershipController::class, 'remove'])->name('orgs.members.remove');
+    Route::patch('orgs/{orgId}/members/{userId}',    [OrgMembershipController::class, 'update'])->name('orgs.members.update');
     Route::patch('orgs/{orgId}/members/{userId}',     [OrgMembershipController::class, 'update'])->name('orgs.members.update');
     Route::post('orgs/invitations/{token}/accept',    [OrgMembershipController::class, 'accept'])->name('orgs.invitations.accept');
 

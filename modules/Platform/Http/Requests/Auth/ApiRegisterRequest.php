@@ -15,8 +15,9 @@ class ApiRegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            // Optional full name — stored as actor.display_name.
-            // When absent, the username is used as the display name.
+            // Full name → stored as actor.display_name.
+            // The Flutter client sends this as 'name'.
+            // When absent, the username is used as display_name.
             'name'        => ['sometimes', 'nullable', 'string', 'max:255'],
             'username'    => ['required', 'string', 'min:3', 'max:50', 'unique:platform.users,username', 'regex:/^[a-zA-Z0-9_]+$/'],
             'email'       => ['required', 'string', 'email', 'max:255', 'unique:platform.users,email'],

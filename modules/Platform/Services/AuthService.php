@@ -27,9 +27,9 @@ class AuthService implements AuthServiceInterface
     {
         return DB::connection('platform')->transaction(function () use ($data) {
 
-            // Use 'name' if provided (from mobile app full name field),
-            // otherwise fall back to username as display name.
-            $displayName = !empty($data['name'])
+            // Use 'name' (full name from Flutter) if provided.
+            // Fall back to username so the actor always has a readable display name.
+            $displayName = !empty(trim($data['name'] ?? ''))
                 ? trim($data['name'])
                 : $data['username'];
 
