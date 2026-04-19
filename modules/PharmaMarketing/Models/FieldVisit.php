@@ -18,6 +18,9 @@ class FieldVisit extends PharmaModel
         'follow_up_notes', 'follow_up_date',
         'contact_person_id', 'contact_person_name',
         'notes', 'metadata',
+        // ── Admin review ──────────────────────────────────────
+        'admin_status', 'flag_reason', 'admin_notes',
+        'reviewed_by', 'reviewed_at',
     ];
 
     protected function casts(): array
@@ -27,6 +30,7 @@ class FieldVisit extends PharmaModel
             'check_out_at'   => 'datetime',
             'follow_up_date' => 'date',
             'metadata'       => 'array',
+            'reviewed_at'    => 'datetime',   // ← add
         ];
     }
 

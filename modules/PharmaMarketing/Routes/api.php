@@ -31,6 +31,9 @@ Route::middleware('auth:sanctum')->prefix('pharma')->name('pharma.')->group(func
     Route::get('visits/{id}',                        [FieldVisitController::class, 'show'])->name('visits.show');
     Route::patch('visits/{id}/check-out',            [FieldVisitController::class, 'checkOut'])->name('visits.check-out');
     Route::post('visits/{id}/attachments',           [FieldVisitController::class, 'uploadAttachment'])->name('visits.attachments.upload');
+    Route::post('visits/{id}/review', [FieldVisitController::class, 'review'])->name('visits.review');
+    Route::post('visits/{id}/flag',   [FieldVisitController::class, 'flag'])->name('visits.flag');
+    
 
     // ── Weekly Plans ───────────────────────────────────────────
     Route::get('orgs/{orgId}/plans',                 [WeeklyPlanController::class, 'index'])->name('plans.index');
@@ -62,4 +65,6 @@ Route::middleware('auth:sanctum')->prefix('pharma')->name('pharma.')->group(func
     Route::post('reports/{id}/submit',               [DailyReportController::class, 'submit'])->name('reports.submit');
     Route::post('reports/{id}/approve',              [DailyReportController::class, 'approve'])->name('reports.approve');
     Route::post('reports/{id}/reject',               [DailyReportController::class, 'reject'])->name('reports.reject');
+    Route::get('reports/{id}', [DailyReportController::class, 'show'])
+    ->name('reports.show');
 });

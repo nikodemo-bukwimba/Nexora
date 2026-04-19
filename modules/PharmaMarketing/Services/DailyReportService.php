@@ -21,17 +21,20 @@ class DailyReportService
             ->first();
 
         if (! $report) {
+            // Generate report number: RPT-YYYY-NNNN
+            $year  = now()->year;
+            $count = DailyReport::whereYear('report_date', $year)->count() + 1;
+
             $report = DailyReport::create([
-                'org_id'            => $orgId,
-                'officer_actor_id'  => $officerActorId,
-                'report_date'       => $date,
-                'status'            => 'draft',
+                'org_id'           => $orgId,
+                'officer_actor_id' => $officerActorId,
+                'report_date'      => $date,
+                'report_number'    => 'RPT-' . $year . '-' . str_pad($count, 4, '0', STR_PAD_LEFT),
+                'status'           => 'draft',
             ]);
         }
 
-        // Auto-sync visit counts
         $this->syncVisitCounts($report);
-
         return $report->fresh();
     }
 
@@ -44,7 +47,14 @@ class DailyReportService
 
         $allowed = array_intersect_key($data, array_flip([
             'summary', 'challenges', 'achievements', 'next_day_plan',
+            'key_outcomes', 'challenges_faced', 'custom_body', 'is_customized',
+            'visited_customers',
         ]));
+
+        // Normalize Flutter field names to backend field names
+        if (isset($allowed['key_outcomes']))    $allowed['summary']      = $allowed['key_outcomes'];
+        if (isset($allowed['challenges_faced'])) $allowed['challenges']  = $allowed['challenges_faced'];
+
         $report->update($allowed);
         return $report->fresh();
     }
@@ -53,7 +63,7 @@ class DailyReportService
     {
         $report = DailyReport::where('id', $reportId)
             ->where('officer_actor_id', $officerActorId)
-            ->where('status', 'draft')
+            ->whereIn('status', ['draft', 'rejected']) // ← allow resubmit
             ->firstOrFail();
 
         $this->syncVisitCounts($report);

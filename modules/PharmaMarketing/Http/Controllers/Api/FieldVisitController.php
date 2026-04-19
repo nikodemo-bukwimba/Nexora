@@ -51,4 +51,48 @@ class FieldVisitController extends Controller
         $attachment = $this->visits->uploadAttachment($id, $request->user()->actor_id, $request->file('file'), $request->only(['caption', 'latitude', 'longitude']));
         return response()->json(['message' => 'Attachment uploaded.', 'attachment' => $attachment], 201);
     }
+
+/**
+ * POST /api/v1/pharma/visits/{id}/review
+ */
+public function review(Request $request, string $id): \Illuminate\Http\JsonResponse
+{
+    $visit = \Modules\PharmaMarketing\Models\FieldVisit::findOrFail($id);
+
+    $visit->update([
+        'admin_status' => 'reviewed',
+        'admin_notes'  => $request->input('notes'),
+        'reviewed_by'  => $request->user()->id,
+        'reviewed_at'  => now(),
+    ]);
+
+    return response()->json([
+        'message' => 'Visit reviewed.',
+        'visit'   => $visit->fresh(['customer', 'attachments', 'products']),
+    ]);
+}
+
+/**
+ * POST /api/v1/pharma/visits/{id}/flag
+ */
+public function flag(Request $request, string $id): \Illuminate\Http\JsonResponse
+{
+    $request->validate([
+        'reason' => ['required', 'string', 'min:5', 'max:1000'],
+    ]);
+
+    $visit = \Modules\PharmaMarketing\Models\FieldVisit::findOrFail($id);
+
+    $visit->update([
+        'admin_status' => 'flagged',
+        'flag_reason'  => $request->reason,
+        'reviewed_by'  => $request->user()->id,
+        'reviewed_at'  => now(),
+    ]);
+
+    return response()->json([
+        'message' => 'Visit flagged.',
+        'visit'   => $visit->fresh(['customer', 'attachments', 'products']),
+    ]);
+}
 }

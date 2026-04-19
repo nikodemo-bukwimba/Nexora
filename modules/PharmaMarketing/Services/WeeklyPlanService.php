@@ -15,6 +15,14 @@ class WeeklyPlanService
             $weekStart = $data['week_start_date'];
             $weekEnd   = date('Y-m-d', strtotime($weekStart . ' +6 days'));
 
+            $existing = WeeklyPlan::where('officer_actor_id', $officerActorId)
+                ->where('week_start_date', $weekStart)
+                ->first();
+
+            if ($existing) {
+                return $existing->fresh(['items']);
+            }
+
             $plan = WeeklyPlan::create([
                 'org_id'           => $orgId,
                 'officer_actor_id' => $officerActorId,
