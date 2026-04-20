@@ -20,14 +20,21 @@ class ProductController extends Controller
     {
         $request->validate([
             'name'                  => ['required', 'string', 'max:255'],
-            'type'                  => ['required', 'string', 'in:physical,service,digital,bundle'],
-            'seller_actor_id'       => ['required', 'string', 'size:26'],
-            'variants'              => ['required', 'array', 'min:1'],
-            'variants.*.base_price' => ['required', 'numeric', 'min:0'],
-            'variants.*.currency'   => ['required', 'string', 'size:3'],
+            'type'                  => ['sometimes', 'string', 'in:physical,service,digital,bundle'],
+            'seller_actor_id'       => ['sometimes', 'nullable', 'string', 'size:26'],
+            'variants'              => ['sometimes', 'array', 'min:1'],
+            'variants.*.base_price' => ['required_with:variants', 'numeric', 'min:0'],
+            'variants.*.currency'   => ['required_with:variants', 'string', 'size:3'],
         ]);
 
-        $product = $this->products->create($orgId, $request->seller_actor_id, $request->all());
+        // Derive seller_actor_id from the org's actor if client did not send it
+        $sellerActorId = $request->seller_actor_id;
+        if (empty($sellerActorId)) {
+            $org = \Modules\Platform\Models\Organization::findOrFail($orgId);
+            $sellerActorId = $org->actor_id;
+        }
+
+        $product = $this->products->create($orgId, $sellerActorId, $request->all());
         return response()->json(['message' => 'Product created.', 'product' => $product], 201);
     }
 
