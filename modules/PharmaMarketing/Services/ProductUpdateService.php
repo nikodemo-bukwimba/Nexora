@@ -40,7 +40,8 @@ class ProductUpdateService
             'title', 'body', 'update_type', 'target_segment', 'target_filters',
             'send_in_app', 'send_whatsapp', 'send_sms',
             'product_ids', 'media_url', 'media_type',
-            'status', 'scheduled_at', 'metadata',
+            'status', 'scheduled_at',
+            'start_date', 'end_date',   // ← ADD
         ])));
         return $update->fresh();
     }

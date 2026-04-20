@@ -14,6 +14,7 @@ class ProductUpdate extends PharmaModel
         'product_ids', 'media_url', 'media_type',
         'status', 'scheduled_at', 'sent_at',
         'total_recipients', 'sent_count', 'failed_count',
+        'start_date', 'end_date',   // ← ADD
     ];
 
     protected function casts(): array
@@ -26,6 +27,8 @@ class ProductUpdate extends PharmaModel
             'send_sms'       => 'boolean',
             'scheduled_at'   => 'datetime',
             'sent_at'        => 'datetime',
+            'start_date'     => 'date',    // ← ADD
+            'end_date'       => 'date',    // ← ADD
         ];
     }
 
