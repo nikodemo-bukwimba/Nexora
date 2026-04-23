@@ -4,15 +4,16 @@ namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\DailyReport;
 use Modules\PharmaMarketing\Models\FieldVisit;
 
 class DailyReportService
 {
-    /**
-     * Get or create today's draft report for an officer.
-     * Auto-populates visit counts from actual visit data.
-     */
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
     public function getOrCreateForToday(string $orgId, string $officerActorId): DailyReport
     {
         $date   = now()->toDateString();
@@ -21,7 +22,6 @@ class DailyReportService
             ->first();
 
         if (! $report) {
-            // Generate report number: RPT-YYYY-NNNN
             $year  = now()->year;
             $count = DailyReport::whereYear('report_date', $year)->count() + 1;
 
@@ -51,9 +51,8 @@ class DailyReportService
             'visited_customers',
         ]));
 
-        // Normalize Flutter field names to backend field names
-        if (isset($allowed['key_outcomes']))    $allowed['summary']      = $allowed['key_outcomes'];
-        if (isset($allowed['challenges_faced'])) $allowed['challenges']  = $allowed['challenges_faced'];
+        if (isset($allowed['key_outcomes']))     $allowed['summary']    = $allowed['key_outcomes'];
+        if (isset($allowed['challenges_faced'])) $allowed['challenges'] = $allowed['challenges_faced'];
 
         $report->update($allowed);
         return $report->fresh();
@@ -63,7 +62,7 @@ class DailyReportService
     {
         $report = DailyReport::where('id', $reportId)
             ->where('officer_actor_id', $officerActorId)
-            ->whereIn('status', ['draft', 'rejected']) // ← allow resubmit
+            ->whereIn('status', ['draft', 'rejected'])
             ->firstOrFail();
 
         $this->syncVisitCounts($report);
@@ -95,9 +94,20 @@ class DailyReportService
         return $report->fresh();
     }
 
+    /**
+     * List reports with org-tree awareness.
+     *
+     * Root admin   → sees reports from ALL branches
+     * Branch user  → sees reports from their branch only
+     *
+     * Root admin can filter by branch:
+     *   $filters['branch_id'] = '01KMQ1...'
+     */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return DailyReport::where('org_id', $orgId)
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+
+        return DailyReport::whereIn('org_id', $orgIds)
             ->when(isset($filters['officer_id']), fn($q) => $q->where('officer_actor_id', $filters['officer_id']))
             ->when(isset($filters['status']),     fn($q) => $q->where('status', $filters['status']))
             ->when(isset($filters['date']),       fn($q) => $q->where('report_date', $filters['date']))

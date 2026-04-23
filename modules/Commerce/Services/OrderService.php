@@ -4,6 +4,7 @@ namespace Modules\Commerce\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\Commerce\Models\Basket;
 use Modules\Commerce\Models\Order;
 use Modules\Commerce\Models\OrderFulfillment;
@@ -12,6 +13,10 @@ use Modules\Commerce\Models\OrderReturn;
 
 class OrderService
 {
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
     /**
      * Checkout: split basket into one order per seller.
      * Returns array of created orders.
@@ -31,7 +36,6 @@ class OrderService
 
             $orders = [];
 
-            // Split by seller
             foreach ($basket->items->groupBy('seller_actor_id') as $sellerActorId => $items) {
                 $subtotal = $items->sum(fn($i) => $i->quantity * $i->unit_price);
                 $currency = $items->first()->currency;
@@ -71,7 +75,6 @@ class OrderService
                     ]);
                 }
 
-                // Auto-confirm if product doesn't require seller confirmation
                 $requiresConfirmation = $items->first()->variant->product->requires_confirmation;
                 if (! $requiresConfirmation) {
                     $order->update(['status' => 'confirmed', 'confirmed_at' => now()]);
@@ -80,7 +83,6 @@ class OrderService
                 $orders[] = $order->fresh(['items']);
             }
 
-            // Mark basket as checked out
             $basket->update(['status' => 'checked_out']);
 
             return $orders;
@@ -101,9 +103,20 @@ class OrderService
             ->paginate($perPage);
     }
 
+    /**
+     * List orders for a seller org with tree-awareness.
+     *
+     * Root admin   → sees orders from ALL branches in the tree
+     * Branch user  → sees orders from their branch only
+     *
+     * Root admin can filter by branch:
+     *   $filters['branch_id'] = '01KMQ1...'
+     */
     public function listForSeller(string $sellerOrgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return Order::where('seller_org_id', $sellerOrgId)
+        $orgIds = $this->scope->scopeIds($sellerOrgId, $filters['branch_id'] ?? null);
+
+        return Order::whereIn('seller_org_id', $orgIds)
             ->when(isset($filters['status']), fn($q) => $q->where('status', $filters['status']))
             ->with(['items'])
             ->orderBy('created_at', 'desc')
@@ -160,10 +173,10 @@ class OrderService
         $order = Order::where('status', 'delivered')->findOrFail($orderId);
 
         return OrderReturn::create([
-            'order_id'      => $orderId,
-            'requested_by'  => $requestedBy,
-            'reason'        => $reason,
-            'status'        => 'pending',
+            'order_id'     => $orderId,
+            'requested_by' => $requestedBy,
+            'reason'       => $reason,
+            'status'       => 'pending',
         ]);
     }
 
@@ -178,7 +191,6 @@ class OrderService
             'reviewed_at'   => now(),
         ]);
 
-        // Mark order as refunded
         $return->order->update(['status' => 'refunded']);
 
         return $return->fresh();

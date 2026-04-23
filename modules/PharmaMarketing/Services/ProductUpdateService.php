@@ -4,6 +4,7 @@ namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\Customer;
 use Modules\PharmaMarketing\Models\ProductUpdate;
 use Modules\PharmaMarketing\Models\ProductUpdateDelivery;
@@ -11,6 +12,10 @@ use Modules\PharmaMarketing\Jobs\SendProductUpdateToCustomer;
 
 class ProductUpdateService
 {
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
     public function create(string $orgId, string $createdBy, array $data): ProductUpdate
     {
         return ProductUpdate::create(array_merge($data, [
@@ -25,14 +30,23 @@ class ProductUpdateService
         return ProductUpdate::with(['deliveries'])->findOrFail($id);
     }
 
+    /**
+     * List product updates with org-tree awareness.
+     *
+     * Root admin   → sees updates from ALL branches
+     * Branch user  → sees updates from their branch only
+     */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return ProductUpdate::where('org_id', $orgId)
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+
+        return ProductUpdate::whereIn('org_id', $orgIds)
             ->when(isset($filters['status']),      fn($q) => $q->where('status', $filters['status']))
             ->when(isset($filters['update_type']), fn($q) => $q->where('update_type', $filters['update_type']))
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
     }
+
     public function patch(string $id, array $data): ProductUpdate
     {
         $update = ProductUpdate::findOrFail($id);
@@ -41,14 +55,11 @@ class ProductUpdateService
             'send_in_app', 'send_whatsapp', 'send_sms',
             'product_ids', 'media_url', 'media_type',
             'status', 'scheduled_at',
-            'start_date', 'end_date',   // ← ADD
+            'start_date', 'end_date',
         ])));
         return $update->fresh();
     }
 
-    /**
-     * Publish a product update — resolve target customers and dispatch delivery jobs.
-     */
     public function publish(string $updateId): ProductUpdate
     {
         $update = ProductUpdate::where('status', 'draft')->findOrFail($updateId);
@@ -61,20 +72,19 @@ class ProductUpdateService
             'total_recipients' => $total,
         ]);
 
-        // Create delivery records and dispatch jobs
         foreach ($customers as $customer) {
             $channels = [];
-            if ($update->send_in_app && $customer->receives_in_app)    $channels[] = 'in_app';
+            if ($update->send_in_app && $customer->receives_in_app)     $channels[] = 'in_app';
             if ($update->send_whatsapp && $customer->receives_whatsapp) $channels[] = 'whatsapp';
             if ($update->send_sms && $customer->receives_sms)           $channels[] = 'sms';
 
             foreach ($channels as $channel) {
                 $delivery = ProductUpdateDelivery::create([
-                    'product_update_id'  => $updateId,
-                    'customer_id'        => $customer->id,
-                    'channel'            => $channel,
-                    'status'             => 'pending',
-                    'recipient_address'  => $this->getRecipientAddress($customer, $channel),
+                    'product_update_id' => $updateId,
+                    'customer_id'       => $customer->id,
+                    'channel'           => $channel,
+                    'status'            => 'pending',
+                    'recipient_address' => $this->getRecipientAddress($customer, $channel),
                 ]);
 
                 SendProductUpdateToCustomer::dispatch($delivery, $update, $customer);
@@ -90,36 +100,30 @@ class ProductUpdateService
         $deliveries = ProductUpdateDelivery::where('product_update_id', $updateId)->get();
 
         return [
-            'total'     => $deliveries->count(),
-            'sent'      => $deliveries->where('status', 'sent')->count(),
-            'delivered' => $deliveries->where('status', 'delivered')->count(),
-            'read'      => $deliveries->where('status', 'read')->count(),
-            'failed'    => $deliveries->where('status', 'failed')->count(),
+            'total'      => $deliveries->count(),
+            'sent'       => $deliveries->where('status', 'sent')->count(),
+            'delivered'  => $deliveries->where('status', 'delivered')->count(),
+            'read'       => $deliveries->where('status', 'read')->count(),
+            'failed'     => $deliveries->where('status', 'failed')->count(),
             'by_channel' => $deliveries->groupBy('channel')->map->count(),
         ];
     }
 
     private function resolveTargetCustomers(ProductUpdate $update)
     {
-        $query = Customer::where('org_id', $update->org_id)->where('status', 'active');
+        // Product updates target ALL customers in the org tree
+        $orgIds = $this->scope->scopeIds($update->org_id);
 
+        $query   = Customer::whereIn('org_id', $orgIds)->where('status', 'active');
         $segment = $update->target_segment;
         $filters = $update->target_filters ?? [];
 
         if ($segment === 'b2b') $query->where('customer_type', 'b2b');
         if ($segment === 'b2c') $query->where('customer_type', 'b2c');
 
-        if (str_starts_with($segment, 'tier:')) {
-            $query->where('tier', substr($segment, 5));
-        }
-
-        if (str_starts_with($segment, 'category:')) {
-            $query->where('category', substr($segment, 9));
-        }
-
-        if (! empty($filters['county'])) {
-            $query->where('county', $filters['county']);
-        }
+        if (str_starts_with($segment, 'tier:'))     $query->where('tier', substr($segment, 5));
+        if (str_starts_with($segment, 'category:')) $query->where('category', substr($segment, 9));
+        if (! empty($filters['county']))             $query->where('county', $filters['county']);
 
         return $query->get();
     }
@@ -129,7 +133,7 @@ class ProductUpdateService
         return match ($channel) {
             'whatsapp' => $customer->whatsapp_number ?? $customer->phone,
             'sms'      => $customer->phone,
-            'in_app'   => null, // resolved from platform actor_id at delivery time
+            'in_app'   => null,
             default    => null,
         };
     }

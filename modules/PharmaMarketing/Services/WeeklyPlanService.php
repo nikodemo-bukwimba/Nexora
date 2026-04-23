@@ -4,11 +4,16 @@ namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\WeeklyPlan;
 use Modules\PharmaMarketing\Models\WeeklyPlanItem;
 
 class WeeklyPlanService
 {
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
     public function create(string $orgId, string $officerActorId, array $data): WeeklyPlan
     {
         return DB::connection('pharma_marketing')->transaction(function () use ($orgId, $officerActorId, $data) {
@@ -50,12 +55,23 @@ class WeeklyPlanService
         return WeeklyPlan::with(['items'])->findOrFail($id);
     }
 
+    /**
+     * List weekly plans with org-tree awareness.
+     *
+     * Root admin   → sees plans from ALL branches
+     * Branch user  → sees plans from their branch only
+     *
+     * Root admin can filter by branch:
+     *   $filters['branch_id'] = '01KMQ1...'
+     */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return WeeklyPlan::where('org_id', $orgId)
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+
+        return WeeklyPlan::whereIn('org_id', $orgIds)
             ->when(isset($filters['officer_id']), fn($q) => $q->where('officer_actor_id', $filters['officer_id']))
             ->when(isset($filters['status']),     fn($q) => $q->where('status', $filters['status']))
-            ->when(isset($filters['week']),        fn($q) => $q->where('week_start_date', $filters['week']))
+            ->when(isset($filters['week']),       fn($q) => $q->where('week_start_date', $filters['week']))
             ->with(['items'])
             ->orderBy('week_start_date', 'desc')
             ->paginate($perPage);
@@ -72,7 +88,6 @@ class WeeklyPlanService
             'notes'      => $data['notes'] ?? $plan->notes,
         ], fn($v) => $v !== null);
 
-        // Recalculate week_end_date if week_start_date is being changed
         if (isset($data['week_start_date'])) {
             $updates['week_start_date'] = $data['week_start_date'];
             $updates['week_end_date']   = date('Y-m-d', strtotime($data['week_start_date'] . ' +6 days'));
@@ -113,10 +128,7 @@ class WeeklyPlanService
             ->whereIn('status', ['draft', 'rejected'])
             ->findOrFail($planId);
 
-        $item = WeeklyPlanItem::where('plan_id', $plan->id)
-            ->findOrFail($itemId);
-
-        $item->delete();
+        WeeklyPlanItem::where('plan_id', $plan->id)->findOrFail($itemId)->delete();
     }
 
     public function submit(string $planId, string $officerActorId): WeeklyPlan

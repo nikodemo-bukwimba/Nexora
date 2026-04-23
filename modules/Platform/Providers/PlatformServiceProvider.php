@@ -10,6 +10,7 @@ use Modules\Platform\Contracts\Services\ActorRelationshipServiceInterface;
 use Modules\Platform\Contracts\Services\AuditLoggerInterface;
 use Modules\Platform\Contracts\Services\AuthServiceInterface;
 use Modules\Platform\Contracts\Services\EventBusInterface;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\Platform\Contracts\Services\OrganizationServiceInterface;
 use Modules\Platform\Contracts\Services\PlatformAdminServiceInterface;
 use Modules\Platform\Http\Middleware\PlatformAdminMiddleware;
@@ -19,6 +20,7 @@ use Modules\Platform\Services\ActorRelationshipService;
 use Modules\Platform\Services\AuditLogger;
 use Modules\Platform\Services\AuthService;
 use Modules\Platform\Services\EventBus;
+use Modules\Platform\Services\OrgScopeResolver;
 use Modules\Platform\Services\OrganizationService;
 use Modules\Platform\Services\PlatformAdminService;
 
@@ -41,6 +43,10 @@ class PlatformServiceProvider extends ServiceProvider
         $this->app->bind(PlatformAdminServiceInterface::class, PlatformAdminService::class);
         $this->app->bind(OrganizationServiceInterface::class, OrganizationService::class);
         $this->app->bind(ActorRelationshipServiceInterface::class, ActorRelationshipService::class);
+
+        // ── OrgScopeResolver — shared across all modules ───────
+        // Singleton per request so the in-memory org cache is reused.
+        $this->app->singleton(OrgScopeResolverInterface::class, OrgScopeResolver::class);
     }
 
     public function boot(): void
@@ -48,7 +54,7 @@ class PlatformServiceProvider extends ServiceProvider
         // ── Migrations ─────────────────────────────────────────
         $this->loadMigrationsFrom(__DIR__ . '/../Database/Migrations');
 
-        // ── Views (for email templates) ── NEW ─────────────────
+        // ── Views (for email templates) ────────────────────────
         $this->loadViewsFrom(__DIR__ . '/../Resources/views', 'platform');
 
         // ── Middleware ──────────────────────────────────────────
@@ -67,7 +73,7 @@ class PlatformServiceProvider extends ServiceProvider
         Route::middleware('api')->prefix('api/v1')->name('api.platform.')
             ->group(__DIR__ . '/../Routes/actor_api.php');
 
-        // ── Register core events in the event registry ─────────
+        // ── Register core events ───────────────────────────────
         $this->registerCoreEvents();
     }
 
@@ -76,14 +82,14 @@ class PlatformServiceProvider extends ServiceProvider
         try {
             $bus = $this->app->make(EventBusInterface::class);
             $events = [
-                ['platform.user.registered', 'platform', 'sync'],
-                ['platform.org.created', 'platform', 'sync'],
-                ['platform.org.approved', 'platform', 'sync'],
-                ['platform.org.rejected', 'platform', 'sync'],
-                ['platform.org.suspended', 'platform', 'sync'],
-                ['platform.member.invited', 'platform', 'sync'],
-                ['platform.member.joined', 'platform', 'sync'],
-                ['platform.actor.relationship.created', 'platform', 'sync'],
+                ['platform.user.registered',              'platform', 'sync'],
+                ['platform.org.created',                  'platform', 'sync'],
+                ['platform.org.approved',                 'platform', 'sync'],
+                ['platform.org.rejected',                 'platform', 'sync'],
+                ['platform.org.suspended',                'platform', 'sync'],
+                ['platform.member.invited',               'platform', 'sync'],
+                ['platform.member.joined',                'platform', 'sync'],
+                ['platform.actor.relationship.created',   'platform', 'sync'],
             ];
             foreach ($events as [$name, $module, $mode]) {
                 $bus->register($name, $module, $mode);

@@ -4,11 +4,20 @@ namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\Customer;
 use Modules\PharmaMarketing\Models\CustomerContact;
 
 class CustomerService
 {
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
+    /**
+     * Create a customer under the given org node.
+     * Always stores org_id as the exact node (branch or root).
+     */
     public function create(string $orgId, array $data): Customer
     {
         return DB::connection('pharma_marketing')->transaction(function () use ($orgId, $data) {
@@ -37,15 +46,26 @@ class CustomerService
         return Customer::with(['contacts', 'visits' => fn($q) => $q->limit(5)])->findOrFail($id);
     }
 
+    /**
+     * List customers with org-tree awareness.
+     *
+     * Root admin   → sees customers from ALL branches + root
+     * Branch user  → sees customers from their branch only
+     *
+     * Root admin can further filter by branch:
+     *   $filters['branch_id'] = '01KMQ1...'
+     */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return Customer::where('org_id', $orgId)
-            ->when(isset($filters['customer_type']),      fn($q) => $q->where('customer_type', $filters['customer_type']))
-            ->when(isset($filters['status']),              fn($q) => $q->where('status', $filters['status']))
-            ->when(isset($filters['category']),            fn($q) => $q->where('category', $filters['category']))
-            ->when(isset($filters['tier']),                fn($q) => $q->where('tier', $filters['tier']))
-            ->when(isset($filters['officer_id']),          fn($q) => $q->where('assigned_officer_id', $filters['officer_id']))
-            ->when(isset($filters['search']),              fn($q) => $q->where(function ($q) use ($filters) {
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+
+        return Customer::whereIn('org_id', $orgIds)
+            ->when(isset($filters['customer_type']), fn($q) => $q->where('customer_type', $filters['customer_type']))
+            ->when(isset($filters['status']),         fn($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['category']),       fn($q) => $q->where('category', $filters['category']))
+            ->when(isset($filters['tier']),           fn($q) => $q->where('tier', $filters['tier']))
+            ->when(isset($filters['officer_id']),     fn($q) => $q->where('assigned_officer_id', $filters['officer_id']))
+            ->when(isset($filters['search']),         fn($q) => $q->where(function ($q) use ($filters) {
                 $q->where('name', 'ilike', "%{$filters['search']}%")
                   ->orWhere('phone', 'ilike', "%{$filters['search']}%")
                   ->orWhere('code', 'ilike', "%{$filters['search']}%");
@@ -80,7 +100,12 @@ class CustomerService
 
     private function generateCode(string $orgId): string
     {
-        $last = Customer::where('org_id', $orgId)
+        // Use root org for unique code generation across the whole tree
+        $rootOrgId = $this->scope->rootId($orgId);
+
+        $orgIds = $this->scope->scopeIds($rootOrgId);
+
+        $last = Customer::whereIn('org_id', $orgIds)
             ->whereNotNull('code')
             ->orderBy('created_at', 'desc')
             ->value('code');

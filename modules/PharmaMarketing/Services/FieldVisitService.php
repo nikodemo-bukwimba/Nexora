@@ -5,6 +5,7 @@ namespace Modules\PharmaMarketing\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\FieldVisit;
 use Modules\PharmaMarketing\Models\VisitAttachment;
 use Modules\PharmaMarketing\Models\VisitProduct;
@@ -12,31 +13,29 @@ use Modules\PharmaMarketing\Models\WeeklyPlanItem;
 
 class FieldVisitService
 {
-    /**
-     * Check in to start a visit.
-     */
+    public function __construct(
+        protected OrgScopeResolverInterface $scope
+    ) {}
+
     public function checkIn(string $orgId, string $officerActorId, string $customerId, array $data): FieldVisit
     {
         return FieldVisit::create([
-            'org_id'                     => $orgId,
-            'customer_id'                => $customerId,
-            'officer_actor_id'           => $officerActorId,
-            'weekly_plan_item_id'        => $data['weekly_plan_item_id'] ?? null,
-            'visit_type'                 => $data['visit_type'] ?? 'routine',
-            'status'                     => 'in_progress',
-            'check_in_at'               => now(),
-            'check_in_latitude'          => $data['latitude'] ?? null,
-            'check_in_longitude'         => $data['longitude'] ?? null,
-            'check_in_gps_accuracy_meters' => $data['gps_accuracy'] ?? null,
-            'objective'                  => $data['objective'] ?? null,
-            'contact_person_id'          => $data['contact_person_id'] ?? null,
-            'contact_person_name'        => $data['contact_person_name'] ?? null,
+            'org_id'                        => $orgId,
+            'customer_id'                   => $customerId,
+            'officer_actor_id'              => $officerActorId,
+            'weekly_plan_item_id'           => $data['weekly_plan_item_id'] ?? null,
+            'visit_type'                    => $data['visit_type'] ?? 'routine',
+            'status'                        => 'in_progress',
+            'check_in_at'                   => now(),
+            'check_in_latitude'             => $data['latitude'] ?? null,
+            'check_in_longitude'            => $data['longitude'] ?? null,
+            'check_in_gps_accuracy_meters'  => $data['gps_accuracy'] ?? null,
+            'objective'                     => $data['objective'] ?? null,
+            'contact_person_id'             => $data['contact_person_id'] ?? null,
+            'contact_person_name'           => $data['contact_person_name'] ?? null,
         ]);
     }
 
-    /**
-     * Check out to complete a visit.
-     */
     public function checkOut(string $visitId, string $officerActorId, array $data): FieldVisit
     {
         return DB::connection('pharma_marketing')->transaction(function () use ($visitId, $officerActorId, $data) {
@@ -55,14 +54,13 @@ class FieldVisitService
                 'check_out_longitude'   => $data['longitude'] ?? null,
                 'duration_minutes'      => $duration,
                 'discussion_summary'    => $data['discussion_summary'] ?? null,
-                'outcome'              => $data['outcome'] ?? null,
+                'outcome'               => $data['outcome'] ?? null,
                 'outcome_status'        => $data['outcome_status'] ?? null,
                 'follow_up_notes'       => $data['follow_up_notes'] ?? null,
                 'follow_up_date'        => $data['follow_up_date'] ?? null,
                 'notes'                 => $data['notes'] ?? null,
             ]);
 
-            // Record promoted products
             foreach ($data['products'] ?? [] as $productData) {
                 VisitProduct::create([
                     'visit_id'          => $visitId,
@@ -74,7 +72,6 @@ class FieldVisitService
                 ]);
             }
 
-            // Link plan item as completed
             if ($visit->weekly_plan_item_id) {
                 WeeklyPlanItem::where('id', $visit->weekly_plan_item_id)
                     ->update(['status' => 'completed', 'visit_id' => $visitId]);
@@ -89,9 +86,20 @@ class FieldVisitService
         return FieldVisit::with(['customer', 'attachments', 'products', 'planItem'])->findOrFail($id);
     }
 
+    /**
+     * List visits with org-tree awareness.
+     *
+     * Root admin   → sees visits from ALL branches in the tree
+     * Branch user  → sees visits from their branch only
+     *
+     * Root admin can filter by branch:
+     *   $filters['branch_id'] = '01KMQ1...'
+     */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return FieldVisit::where('org_id', $orgId)
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+
+        return FieldVisit::whereIn('org_id', $orgIds)
             ->when(isset($filters['officer_id']),  fn($q) => $q->where('officer_actor_id', $filters['officer_id']))
             ->when(isset($filters['customer_id']), fn($q) => $q->where('customer_id', $filters['customer_id']))
             ->when(isset($filters['status']),      fn($q) => $q->where('status', $filters['status']))
@@ -103,9 +111,6 @@ class FieldVisitService
             ->paginate($perPage);
     }
 
-    /**
-     * Upload attachment to a visit.
-     */
     public function uploadAttachment(string $visitId, string $actorId, \Illuminate\Http\UploadedFile $file, array $data = []): VisitAttachment
     {
         $disk     = config('pharma_marketing.media_disk', 'public');
