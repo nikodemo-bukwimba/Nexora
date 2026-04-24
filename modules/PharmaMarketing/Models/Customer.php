@@ -11,7 +11,8 @@ class Customer extends PharmaModel
 
     protected $table    = 'pm_customers';
     protected $fillable = [
-        'org_id', 'assigned_officer_id', 'customer_type', 'name', 'code',
+        'org_id', 'assigned_officer_id', 'platform_user_id', 'registration_source',
+        'customer_type', 'name', 'code',
         'category', 'tier', 'status',
         'business_registration', 'tax_pin',
         'address', 'city', 'county', 'country',

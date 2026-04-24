@@ -21,11 +21,37 @@ class CustomerController extends Controller
     public function store(Request $request, string $orgId): JsonResponse
     {
         $request->validate([
-            'name'          => ['required', 'string', 'max:255'],
+            'name'          => ['required', 'string', 'min:2'],
             'customer_type' => ['required', 'string', 'in:b2b,b2c'],
+            'app_password'  => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
         ]);
-        $customer = $this->customers->create($orgId, $request->all());
-        return response()->json(['message' => 'Customer created.', 'customer' => $customer], 201);
+
+        $customer = $this->customers->create($orgId, $request->except(['app_password', 'app_password_confirmation']));
+
+        // If admin set a password, auto-register the customer on the platform
+        if ($request->filled('app_password') && $request->filled('email')) {
+            try {
+                $authService = app(\Modules\Platform\Contracts\Services\AuthServiceInterface::class);
+                $username = \Illuminate\Support\Str::slug($request->email) . '_' . substr(uniqid(), -4);
+
+                $user = $authService->register([
+                    'name'     => $request->name,
+                    'username' => $username,
+                    'email'    => $request->email,
+                    'password' => $request->app_password,
+                ]);
+
+                // Link to customer record
+                $customer->update([
+                    'platform_user_id'    => $user->id,
+                    'registration_source' => 'admin',
+                ]);
+            } catch (\Throwable $e) {
+                \Log::warning("Failed to create platform account for customer {$customer->id}: {$e->getMessage()}");
+            }
+        }
+
+        return response()->json(['message' => 'Customer created.', 'customer' => $customer->fresh(['contacts'])], 201);
     }
 
     /** GET /api/v1/pharma/customers/{id} */

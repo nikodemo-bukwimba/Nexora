@@ -1,0 +1,65 @@
+﻿// ================================================================
+// Database Export : users
+// Generated       : 2026-04-24 17:36:07
+// Project         : D:\Projects\Barick Phamacy\nexora
+// Usage           : Review data or upload to Claude for analysis.
+// ================================================================
+
+(function () {
+    $users = \Modules\Platform\Models\User::with([
+        'actor',
+        'platformRoles.platformRole.permissions',
+        'tierAssignments' => fn($q) => $q->where('status','active')->with('tier'),
+        'socialLogins',
+        'orgMemberships.organization',
+    ])->orderBy('created_at','desc')->get();
+
+    echo "=== REGISTERED USERS (" . $users->count() . ") ===\n\n";
+
+    foreach ($users as $u) {
+        echo "----------------------------------------\n";
+        echo "ID            : {$u->id}\n";
+        echo "Username      : {$u->username}\n";
+        echo "Email         : {$u->email}\n";
+        echo "Status        : {$u->status}\n";
+        echo "Email Verified: " . ($u->email_verified_at ? $u->email_verified_at->toDateTimeString() : 'NOT VERIFIED') . "\n";
+        echo "Last Login    : " . ($u->last_login_at    ? $u->last_login_at->toDateTimeString()    : 'Never') . "\n";
+        echo "Last Login IP : " . ($u->last_login_ip    ?? 'N/A') . "\n";
+        echo "Created At    : " . ($u->created_at       ? $u->created_at->toDateTimeString()       : 'N/A') . "\n";
+        echo "2FA Enabled   : " . ($u->two_factor_confirmed_at ? 'Yes' : 'No') . "\n";
+
+        if ($u->actor) {
+            echo "Actor ID      : {$u->actor->id}\n";
+            echo "Actor Status  : {$u->actor->status}\n";
+        }
+
+        $roles = $u->platformRoles->map(fn($upr) => $upr->platformRole)->filter();
+        if ($roles->isNotEmpty()) {
+            echo "Platform Roles:\n";
+            foreach ($roles as $role) {
+                $perms = $role->permissions->pluck('name')->join(', ');
+                echo "  - {$role->name}" . ($perms ? " [permissions: {$perms}]" : '') . "\n";
+            }
+        } else {
+            echo "Platform Roles: none\n";
+        }
+
+        $activeTier = $u->tierAssignments->first();
+        echo "Active Tier   : " . ($activeTier ? $activeTier->tier->name : 'none') . "\n";
+
+        if ($u->socialLogins->isNotEmpty()) {
+            echo "Social Logins : " . $u->socialLogins->pluck('provider')->join(', ') . "\n";
+        }
+
+        if ($u->orgMemberships->isNotEmpty()) {
+            echo "Organisations :\n";
+            foreach ($u->orgMemberships as $m) {
+                $orgName = $m->organization ? $m->organization->name : $m->org_id;
+                echo "  - {$orgName} (role: {$m->role}, status: {$m->status})\n";
+            }
+        }
+
+        echo "\n";
+    }
+})();
+

@@ -9,11 +9,15 @@ use Modules\Platform\Contracts\Services\AuthServiceInterface;
 use Modules\Platform\Http\Requests\Auth\ApiLoginRequest;
 use Modules\Platform\Http\Requests\Auth\ApiRegisterRequest;
 use Modules\Platform\Models\User;
+use Modules\PharmaMarketing\Services\CustomerService;
+use Modules\PharmaMarketing\Services\OfficerService;
 
 class AuthController extends Controller
 {
     public function __construct(
-        protected AuthServiceInterface $auth
+        protected AuthServiceInterface $auth,
+        protected CustomerService $customerService,
+        protected OfficerService $officerService,
     ) {}
 
     public function register(ApiRegisterRequest $request): JsonResponse
@@ -21,6 +25,53 @@ class AuthController extends Controller
         $user  = $this->auth->register($request->validated());
         $token = $user->createToken($request->device_name ?? 'api')->plainTextToken;
         $this->auth->recordLogin($user, $request->ip());
+
+        $orgId       = $request->input('org_id');
+        $appType     = $request->input('app_type'); // 'customer' | 'officer'
+        $displayName = $user->actor?->display_name ?? $user->username;
+
+        if ($orgId) {
+            try {
+                if ($appType === 'officer') {
+                    // Try to link to pre-existing pm_officer record (admin-created)
+                    $linked = $this->officerService->linkPlatformUser(
+                        $orgId,
+                        $user->id,
+                        $user->actor_id ?? '',
+                        $user->email
+                    );
+                    // If none found, create a self-registered officer record
+                    if (! $linked) {
+                        $this->officerService->createFromAdminOrg(
+                            orgId:          $orgId,
+                            branchId:       $orgId, // default to root; branch resolved later
+                            platformUserId: $user->id,
+                            actorId:        $user->actor_id ?? '',
+                            name:           $displayName,
+                            email:          $user->email,
+                            source:         'self_registered',
+                        );
+                    }
+                } else {
+                    // Default: customer app registration
+                    $linked = $this->customerService->linkPlatformUser(
+                        $orgId,
+                        $user->id,
+                        $user->email
+                    );
+                    if (! $linked) {
+                        $this->customerService->createFromRegistration(
+                            orgId:          $orgId,
+                            platformUserId: $user->id,
+                            displayName:    $displayName,
+                            email:          $user->email,
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Log::warning("Auto-create pharma record failed for user {$user->id}: {$e->getMessage()}");
+            }
+        }
 
         return response()->json([
             'user'  => [

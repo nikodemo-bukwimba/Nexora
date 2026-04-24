@@ -21,6 +21,7 @@ class PharmaMarketingServiceProvider extends ServiceProvider
         $this->app->bind(WeeklyPlanService::class);
         $this->app->bind(ProductUpdateService::class);
         $this->app->bind(DailyReportService::class);
+        $this->app->bind(\Modules\PharmaMarketing\Services\OfficerService::class);
     }
 
     public function boot(): void
@@ -31,5 +32,9 @@ class PharmaMarketingServiceProvider extends ServiceProvider
              ->prefix('api/v1')
              ->name('api.')
              ->group(__DIR__ . '/../Routes/api.php');
+        \Illuminate\Support\Facades\Event::listen(
+        \Modules\Platform\Events\MemberActivated::class,
+        \Modules\PharmaMarketing\Listeners\CreateOfficerOnMemberActivated::class,
+        );
     }
 }

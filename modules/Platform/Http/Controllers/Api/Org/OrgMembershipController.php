@@ -75,6 +75,54 @@ class OrgMembershipController extends Controller
             $request->level ?? 0,
             $request->user()->id
         );
+        // Handle immediate account creation (no invite email flow)
+        if ($request->filled('app_password') && $request->filled('email')) {
+            try {
+                $authService = app(\Modules\Platform\Contracts\Services\AuthServiceInterface::class);
+                $officerService = app(\Modules\PharmaMarketing\Services\OfficerService::class);
+
+                // Check if user already exists
+                $existingUser = \Modules\Platform\Models\User::where('email', $request->email)->first();
+
+                if (! $existingUser) {
+                    $username = \Illuminate\Support\Str::slug($request->email) . '_' . substr(uniqid(), -4);
+                    $existingUser = $authService->register([
+                        'name'     => $request->name ?? $request->email,
+                        'username' => $username,
+                        'email'    => $request->email,
+                        'password' => $request->app_password,
+                    ]);
+                }
+
+                // Auto-accept the invitation for this user
+                $membership = \Modules\Platform\Models\OrgMembership::create([
+                    'user_id'     => $existingUser->id,
+                    'org_id'      => $orgId,
+                    'org_role_id' => $request->org_role_id,
+                    'level'       => $request->level ?? 0,
+                    'invited_by'  => $request->user()->id,
+                    'status'      => 'active',
+                    'joined_at'   => now(),
+                ]);
+
+                // Create pm_officers record
+                $rootOrgId = \Modules\Platform\Models\Organization::findOrFail($orgId)->root_org_id ?? $orgId;
+                $officerService->createFromAdminOrg(
+                    orgId:          $rootOrgId,
+                    branchId:       $orgId,
+                    platformUserId: $existingUser->id,
+                    actorId:        $existingUser->actor_id ?? '',
+                    name:           $existingUser->actor?->display_name ?? $existingUser->username,
+                    email:          $existingUser->email,
+                    phone:          $request->phone,
+                    source:         'admin',
+                );
+
+                $invitation->update(['status' => 'accepted']);
+            } catch (\Throwable $e) {
+                \Log::warning("Officer app_password setup failed: {$e->getMessage()}");
+            }
+        }
 
         // ── Send invitation email ─────────────────────────────
         try {
@@ -95,6 +143,15 @@ class OrgMembershipController extends Controller
         } catch (\Throwable $e) {
             \Log::warning("Failed to send invitation email to {$request->email}: {$e->getMessage()}");
         }
+        
+        $request->validate([
+        'email'         => ['required', 'string', 'email'],
+        'role_id'       => ['required', 'string', 'size:26'],
+        'level'         => ['required', 'integer', 'min:0', 'max:100'],
+        'app_password'  => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
+        'name'          => ['sometimes', 'nullable', 'string', 'max:255'],
+        'phone'         => ['sometimes', 'nullable', 'string', 'max:30'],
+         ]);
 
         return response()->json([
             'message'    => 'Invitation sent.',

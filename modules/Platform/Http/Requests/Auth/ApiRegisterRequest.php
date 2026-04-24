@@ -23,6 +23,8 @@ class ApiRegisterRequest extends FormRequest
             'email'       => ['required', 'string', 'email', 'max:255', 'unique:platform.users,email'],
             'password'    => ['required', 'confirmed', Password::defaults()],
             'device_name' => ['nullable', 'string', 'max:100'],
+            'org_id'   => ['sometimes', 'nullable', 'string', 'size:26'],
+            'app_type' => ['sometimes', 'nullable', 'string', 'in:customer,officer'],
         ];
     }
 

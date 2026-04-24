@@ -5,61 +5,37 @@ namespace Modules\PharmaMarketing\Http\Controllers\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
+use Modules\PharmaMarketing\Models\PmOfficer;
+use Modules\PharmaMarketing\Services\OfficerService;
+use Modules\Platform\Contracts\Services\AuthServiceInterface;
 use Modules\Platform\Models\OrgMembership;
-use Modules\Platform\Models\OrgRole;
-use Modules\Platform\Models\Organization;
 use Modules\Platform\Models\User;
+use Modules\Platform\Models\Actor;
 
-/**
- * OfficerController
- *
- * Officers are OrgMembership records whose org_role has slug = 'officer'.
- * There is no separate Officer table — this controller is a filtered
- * view over the platform's org_memberships + users + actors.
- *
- * Routes (prefix: /api/v1/pharma):
- *   GET    orgs/{orgId}/officers                  → index
- *   GET    orgs/{orgId}/officers/{officerId}       → show   (officerId = membership id)
- *   POST   orgs/{orgId}/officers                  → store  (assign existing user as officer)
- *   PATCH  orgs/{orgId}/officers/{officerId}       → update (update membership level/status)
- *   DELETE orgs/{orgId}/officers/{officerId}       → destroy
- */
 class OfficerController extends Controller
 {
+    public function __construct(protected OfficerService $officerService) {}
+
     /**
      * GET /api/v1/pharma/orgs/{orgId}/officers
      *
-     * Lists all officer memberships for an org (root or branch).
-     * For root orgs: includes officers from all branches in the tree.
-     * Filterable by: branch_id, status
+     * Lists pm_officers for the given org/branch.
+     * Enriches each officer with membership and user details.
      */
     public function index(Request $request, string $orgId): JsonResponse
     {
-        $org = Organization::findOrFail($orgId);
-
-        // Collect org IDs in scope
-        if ($org->type === 'root') {
-            $scopeOrgIds = Organization::where('root_org_id', $orgId)
-                ->orWhere('id', $orgId)
-                ->pluck('id');
-        } else {
-            $scopeOrgIds = collect([$orgId]);
-        }
-
-        $officers = OrgMembership::whereIn('org_id', $scopeOrgIds)
-            ->whereHas('orgRole', fn($q) => $q->where('slug', 'officer'))
-            ->with([
-                'user.actor',
-                'orgRole',
-                'organization',
-            ])
-            ->when($request->branch_id, fn($q, $v) => $q->where('org_id', $v))
-            ->when($request->status,    fn($q, $v) => $q->where('status', $v))
-            ->orderByDesc('joined_at')
+        $officers = PmOfficer::where('org_id', $orgId)
+            ->when($request->status, fn($q, $v) => $q->where('status', $v))
+            ->when($request->search, fn($q, $v) => $q->where(function ($q) use ($v) {
+                $q->where('name', 'ilike', "%{$v}%")
+                  ->orWhere('email', 'ilike', "%{$v}%");
+            }))
+            ->orderBy('name')
             ->paginate((int) $request->get('per_page', 25));
 
-        // Shape the response to look like officers, not raw memberships
-        $officers->getCollection()->transform(fn($m) => self::formatOfficer($m));
+        // Enrich with membership and user data for the admin app
+        $officers->getCollection()->transform(fn($o) => $this->format($o, $orgId));
 
         return response()->json($officers);
     }
@@ -67,189 +43,238 @@ class OfficerController extends Controller
     /**
      * GET /api/v1/pharma/orgs/{orgId}/officers/{officerId}
      *
-     * officerId = the membership ID (ULID, 26 chars)
+     * Returns a single officer by their pm_officers.id OR actor_id.
+     * Supports both ID types so the admin app can fetch by either.
      */
     public function show(string $orgId, string $officerId): JsonResponse
     {
-        $membership = OrgMembership::where('id', $officerId)
-            ->where('org_id', $orgId)
-            ->whereHas('orgRole', fn($q) => $q->where('slug', 'officer'))
-            ->with(['user.actor', 'orgRole', 'organization'])
+        $officer = PmOfficer::where('org_id', $orgId)
+            ->where(function ($q) use ($officerId) {
+                $q->where('id', $officerId)
+                  ->orWhere('actor_id', $officerId)
+                  ->orWhere('platform_user_id', $officerId);
+            })
             ->firstOrFail();
 
-        return response()->json(self::formatOfficer($membership));
+        return response()->json(['officer' => $this->format($officer, $orgId)]);
     }
 
     /**
      * POST /api/v1/pharma/orgs/{orgId}/officers
      *
-     * Assign an existing platform user as an officer in this org.
-     * The user must already exist (registered via /auth/register).
-     * If the user is already a root-org member, assigns directly (active).
-     * If not yet a root-org member, creates an invited membership.
+     * Creates a platform user + org membership + pm_officer record atomically.
+     * This is the "Create Officer" flow from the admin app.
      *
-     * Body:
-     *   user_id   string  required  ULID of the platform user
-     *   level     int     optional  0-99, default 10
+     * Request body:
+     *   email            required
+     *   username         required (used as display name too)
+     *   phone            optional
+     *   org_role_id      required  — platform org_roles.id for this branch
+     *   level            optional  default 40
+     *   app_password     optional  — if provided, creates platform login immediately
+     *   app_password_confirmation — required if app_password set
      */
     public function store(Request $request, string $orgId): JsonResponse
     {
         $request->validate([
-            'user_id' => ['required', 'string', 'size:26', 'exists:platform.users,id'],
-            'level'   => ['nullable', 'integer', 'min:0', 'max:99'],
+            'email'                    => ['required', 'string', 'email'],
+            'username'                 => ['nullable', 'string', 'max:50', 'regex:/^[a-zA-Z0-9_]+$/'],
+            'phone'                    => ['nullable', 'string'],
+            'org_role_id'              => ['required', 'string', 'size:26'],
+            'level'                    => ['nullable', 'integer', 'min:0', 'max:100'],
+            'app_password'             => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $org   = Organization::findOrFail($orgId);
-        $level = $request->level ?? 10;
+        $authService = app(AuthServiceInterface::class);
+        $level = $request->input('level', 40);
 
-        // Find the 'officer' role for this org tree
-        $rootOrgId   = $org->root_org_id ?? $org->id;
-        $officerRole = OrgRole::where('root_org_id', $rootOrgId)
-            ->where('slug', 'officer')
-            ->first();
+        return DB::connection('platform')->transaction(function () use ($request, $orgId, $authService, $level) {
 
-        if (! $officerRole) {
-            // Auto-create the officer role if it doesn't exist yet
-            $officerRole = OrgRole::create([
-                'root_org_id' => $rootOrgId,
-                'name'        => 'Officer',
-                'slug'        => 'officer',
-                'source'      => 'custom',
-                'is_system'   => false,
-            ]);
-        }
+            // 1. Derive root org id for pm_officers.org_id
+            $branch = \Modules\Platform\Models\Organization::findOrFail($orgId);
+            $rootOrgId = $branch->root_org_id ?? $orgId;
 
-        // Prevent duplicate: check if user already has an officer membership here
-        $existing = OrgMembership::where('user_id', $request->user_id)
-            ->where('org_id', $orgId)
-            ->first();
+            // 2. Create or find platform user
+            $existingUser = User::where('email', $request->email)->first();
 
-        if ($existing) {
-            if ($existing->status === 'active') {
-                return response()->json([
-                    'message' => 'User is already an active officer in this branch.',
-                ], 422);
+            if ($existingUser) {
+                $user = $existingUser;
+            } else {
+                $username = $request->username
+                    ?? preg_replace('/[^a-zA-Z0-9_]/', '_', explode('@', $request->email)[0])
+                    . '_' . substr(uniqid(), -4);
+
+                // If password provided, register immediately with login
+                $password = $request->filled('app_password')
+                    ? $request->app_password
+                    : \Illuminate\Support\Str::random(24); // random non-usable password
+
+                $user = $authService->register([
+                    'name'     => $request->input('username', explode('@', $request->email)[0]),
+                    'username' => $username,
+                    'email'    => $request->email,
+                    'password' => $password,
+                ]);
             }
 
-            // Reactivate if suspended
-            $existing->update([
-                'org_role_id' => $officerRole->id,
-                'level'       => $level,
-                'status'      => 'active',
-                'joined_at'   => now(),
-            ]);
+            // 3. Create org membership at the branch level
+            $existingMembership = OrgMembership::where('user_id', $user->id)
+                ->where('org_id', $orgId)
+                ->where('status', 'active')
+                ->first();
+
+            if (!$existingMembership) {
+                OrgMembership::create([
+                    'user_id'     => $user->id,
+                    'org_id'      => $orgId,
+                    'org_role_id' => $request->org_role_id,
+                    'level'       => $level,
+                    'invited_by'  => $request->user()->id,
+                    'status'      => 'active',
+                    'joined_at'   => now(),
+                ]);
+            }
+
+            // 4. Create pm_officer record
+            $officer = $this->officerService->createFromAdminOrg(
+                orgId:          $rootOrgId,
+                branchId:       $orgId,
+                platformUserId: $user->id,
+                actorId:        $user->actor_id,
+                name:           $request->input('username', $user->username),
+                email:          $user->email,
+                phone:          $request->phone,
+                source:         'admin',
+            );
 
             return response()->json([
-                'message' => 'Officer reactivated.',
-                'officer' => self::formatOfficer($existing->fresh(['user.actor', 'orgRole', 'organization'])),
-            ]);
-        }
-
-        // Check root org membership to decide direct assign vs invite
-        $rootMembership = OrgMembership::where('user_id', $request->user_id)
-            ->where('org_id', $rootOrgId)
-            ->where('status', 'active')
-            ->first();
-
-        $status   = $rootMembership ? 'active' : 'invited';
-        $joinedAt = $rootMembership ? now() : null;
-
-        $membership = OrgMembership::create([
-            'user_id'     => $request->user_id,
-            'org_id'      => $orgId,
-            'org_role_id' => $officerRole->id,
-            'level'       => $level,
-            'invited_by'  => $request->user()->id,
-            'status'      => $status,
-            'joined_at'   => $joinedAt,
-        ]);
-
-        return response()->json([
-            'message' => $rootMembership ? 'Officer assigned.' : 'Officer invited (pending acceptance).',
-            'officer' => self::formatOfficer($membership->fresh(['user.actor', 'orgRole', 'organization'])),
-        ], 201);
+                'message' => 'Officer created successfully.',
+                'officer' => $this->format($officer, $orgId),
+            ], 201);
+        });
     }
 
     /**
      * PATCH /api/v1/pharma/orgs/{orgId}/officers/{officerId}
      *
-     * Update an officer's level or status.
-     *
-     * Body (all optional):
-     *   level   int     0-99
-     *   status  string  active|suspended
+     * Updates officer name, phone, status in pm_officers.
+     * Also updates org membership role/level.
      */
     public function update(Request $request, string $orgId, string $officerId): JsonResponse
     {
         $request->validate([
-            'level'  => ['sometimes', 'integer', 'min:0', 'max:99'],
-            'status' => ['sometimes', 'string', 'in:active,suspended'],
+            'name'        => ['sometimes', 'string', 'min:2'],
+            'phone'       => ['sometimes', 'nullable', 'string'],
+            'status'      => ['sometimes', 'string', 'in:active,suspended'],
+            'org_role_id' => ['sometimes', 'string', 'size:26'],
+            'level'       => ['sometimes', 'integer', 'min:0', 'max:100'],
         ]);
 
-        $membership = OrgMembership::where('id', $officerId)
-            ->where('org_id', $orgId)
-            ->whereHas('orgRole', fn($q) => $q->where('slug', 'officer'))
+        $officer = PmOfficer::where('org_id', $orgId)
+            ->where(function ($q) use ($officerId) {
+                $q->where('id', $officerId)
+                  ->orWhere('actor_id', $officerId);
+            })
             ->firstOrFail();
 
-        $membership->update(array_filter(
-            $request->only(['level', 'status']),
-            fn($v) => ! is_null($v)
-        ));
+        // Update pm_officer fields
+        $officer->update(array_filter([
+            'name'   => $request->name,
+            'phone'  => $request->phone,
+            'status' => $request->status,
+        ], fn($v) => !is_null($v)));
+
+        // Update org membership if role/level changed
+        if ($request->filled('org_role_id') || $request->filled('level') || $request->filled('status')) {
+            OrgMembership::where('user_id', $officer->platform_user_id)
+                ->where('org_id', $orgId)
+                ->update(array_filter([
+                    'org_role_id' => $request->org_role_id,
+                    'level'       => $request->level,
+                    'status'      => $request->status,
+                ], fn($v) => !is_null($v)));
+        }
 
         return response()->json([
             'message' => 'Officer updated.',
-            'officer' => self::formatOfficer($membership->fresh(['user.actor', 'orgRole', 'organization'])),
+            'officer' => $this->format($officer->fresh(), $orgId),
         ]);
     }
 
     /**
      * DELETE /api/v1/pharma/orgs/{orgId}/officers/{officerId}
      *
-     * Removes (suspends) an officer from this branch.
-     * Does NOT delete the platform user.
+     * Soft-deletes pm_officer and suspends org membership.
      */
     public function destroy(string $orgId, string $officerId): JsonResponse
     {
-        $membership = OrgMembership::where('id', $officerId)
-            ->where('org_id', $orgId)
-            ->whereHas('orgRole', fn($q) => $q->where('slug', 'officer'))
+        $officer = PmOfficer::where('org_id', $orgId)
+            ->where(function ($q) use ($officerId) {
+                $q->where('id', $officerId)
+                  ->orWhere('actor_id', $officerId);
+            })
             ->firstOrFail();
 
-        $membership->update(['status' => 'suspended']);
+        // Suspend org membership instead of hard delete
+        OrgMembership::where('user_id', $officer->platform_user_id)
+            ->where('org_id', $orgId)
+            ->update(['status' => 'suspended']);
 
-        return response()->json(['message' => 'Officer removed from branch.']);
+        $officer->update(['status' => 'suspended']);
+        $officer->delete();
+
+        return response()->json(['message' => 'Officer removed.']);
     }
 
-    /**
-     * Shape a membership record into the officer response format.
-     */
-    private static function formatOfficer(OrgMembership $membership): array
-    {
-        $user  = $membership->user;
-        $actor = $user?->actor;
+    // ── Private helper ──────────────────────────────────────
 
-        return [
-            'id'           => $membership->id,       // membership ID — use for show/update/delete
-            'user_id'      => $membership->user_id,
-            'actor_id'     => $user?->actor_id,
-            'name'         => $actor?->display_name ?? $user?->username ?? 'Unknown',
-            'username'     => $user?->username,
-            'email'        => $user?->email,
-            'status'       => $membership->status,
-            'level'        => $membership->level,
-            'joined_at'    => $membership->joined_at?->toISOString(),
-            'role'         => [
-                'id'   => $membership->orgRole?->id,
-                'name' => $membership->orgRole?->name,
-                'slug' => $membership->orgRole?->slug,
-            ],
-            'branch'       => [
-                'id'   => $membership->organization?->id,
-                'name' => $membership->organization?->name,
-                'type' => $membership->organization?->type,
-            ],
-            'avatar_url'   => $actor?->avatar_url,
-            'actor_status' => $actor?->status,
+    /**
+     * Enrich a PmOfficer record with membership and user details.
+     * Returns a shape that OfficerModel.fromJson() on the admin app can parse.
+     */
+    private function format(PmOfficer $officer, string $orgId): array
+    {
+        $data = $officer->toArray();
+
+        // Resolve user and membership details
+        $user = $officer->platform_user_id
+            ? User::find($officer->platform_user_id)
+            : null;
+
+        $actor = $officer->actor_id
+            ? Actor::find($officer->actor_id)
+            : null;
+
+        $membership = $user
+            ? OrgMembership::where('user_id', $user->id)
+                ->where('org_id', $orgId)
+                ->where('status', 'active')
+                ->with('orgRole')
+                ->first()
+            : null;
+
+        // Build the shape OfficerModel.fromJson expects:
+        // { user_id, actor_id, user: { id, username, email, phone, status, actor_id },
+        //   role: { id, name }, org_id, org_role_id, level, status, created_at }
+        $data['user_id']     = $user?->id ?? $officer->platform_user_id;
+        $data['actor_id']    = $actor?->id ?? $officer->actor_id;
+        $data['user']        = [
+            'id'       => $user?->id,
+            'username' => $user?->username ?? $officer->name,
+            'email'    => $user?->email ?? $officer->email,
+            'phone'    => $officer->phone,
+            'status'   => $user?->status ?? 'active',
+            'actor_id' => $actor?->id ?? $officer->actor_id,
         ];
+        $data['role']        = $membership ? [
+            'id'   => $membership->org_role_id,
+            'name' => $membership->orgRole?->name,
+        ] : ['id' => null, 'name' => null];
+        $data['org_role_id'] = $membership?->org_role_id;
+        $data['level']       = $membership?->level ?? 0;
+        $data['status']      = $membership?->status ?? $officer->status;
+        $data['org_name']    = null; // filled if needed
+
+        return $data;
     }
 }

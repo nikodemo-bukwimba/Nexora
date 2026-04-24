@@ -98,6 +98,65 @@ class CustomerService
         return CustomerContact::create(array_merge($data, ['customer_id' => $customerId]));
     }
 
+        /**
+     * Called by AuthController after customer registers via jadosoft-lite.
+     * Idempotent.
+     */
+    public function createFromRegistration(
+        string $orgId,
+        string $platformUserId,
+        string $displayName,
+        ?string $email = null,
+        ?string $phone = null,
+    ): Customer {
+        return DB::connection('pharma_marketing')->transaction(function () use (
+            $orgId, $platformUserId, $displayName, $email, $phone
+        ) {
+            $existing = Customer::where('platform_user_id', $platformUserId)
+                ->where('org_id', $orgId)
+                ->first();
+
+            if ($existing) return $existing;
+
+            return Customer::create([
+                'org_id'              => $orgId,
+                'platform_user_id'    => $platformUserId,
+                'registration_source' => 'self_registered',
+                'customer_type'       => 'b2c',
+                'name'                => $displayName,
+                'code'                => $this->generateCode($orgId),
+                'email'               => $email,
+                'phone'               => $phone,
+                'status'              => 'active',
+                'tier'                => 'standard',
+            ]);
+        });
+    }
+
+    /**
+     * Link an admin-created customer to a platform user by matching email.
+     */
+    public function linkPlatformUser(
+        string $orgId,
+        string $platformUserId,
+        string $email
+    ): ?Customer {
+        $customer = Customer::where('org_id', $orgId)
+            ->where('email', $email)
+            ->whereNull('platform_user_id')
+            ->first();
+
+        if ($customer) {
+            $customer->update([
+                'platform_user_id'    => $platformUserId,
+                'registration_source' => 'self_registered',
+            ]);
+            return $customer->fresh();
+        }
+
+        return null;
+    }
+
     private function generateCode(string $orgId): string
     {
         // Use root org for unique code generation across the whole tree

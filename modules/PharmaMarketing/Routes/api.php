@@ -67,4 +67,5 @@ Route::middleware('auth:sanctum')->prefix('pharma')->name('pharma.')->group(func
     Route::post('reports/{id}/reject',               [DailyReportController::class, 'reject'])->name('reports.reject');
     Route::get('reports/{id}', [DailyReportController::class, 'show'])
     ->name('reports.show');
+    Route::get('orgs/{orgId}/pm-officers', [OfficerController::class, 'index'])->name('pm-officers.index');
 });

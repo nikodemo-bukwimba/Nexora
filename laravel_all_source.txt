@@ -1,7 +1,7 @@
 ﻿// ================================================================
 // laravel_all_source.txt
 // Project Type : Laravel/PHP
-// Generated    : 2026-04-22 23:11:51
+// Generated    : 2026-04-24 17:33:30
 // Files        : 39
 // Usage        : Upload to Claude Project documents as reference.
 // ================================================================

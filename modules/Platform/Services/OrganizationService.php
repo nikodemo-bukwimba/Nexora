@@ -273,6 +273,8 @@ class OrganizationService implements OrganizationServiceInterface
                 'status' => 'active',
                 'joined_at' => now(),
             ]);
+            // After: $membership = OrgMembership::create([...]);
+            $this->eventBus->fire(new \Modules\Platform\Events\MemberActivated($membership), $membership->user_id);
 
             $invitation->update(['status' => 'accepted']);
 

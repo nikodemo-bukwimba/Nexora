@@ -1,0 +1,150 @@
+﻿// ================================================================
+// Database Export : full_snapshot
+// Generated       : 2026-04-24 17:33:46
+// Project         : D:\Projects\Barick Phamacy\nexora
+// Usage           : Review data or upload to Claude for analysis.
+// ================================================================
+
+(function () {
+    $users = \Modules\Platform\Models\User::with([
+        'actor',
+        'platformRoles.platformRole.permissions',
+        'tierAssignments' => fn($q) => $q->where('status','active')->with('tier'),
+        'socialLogins',
+        'orgMemberships.organization',
+    ])->orderBy('created_at','desc')->get();
+
+    echo "=== REGISTERED USERS (" . $users->count() . ") ===\n\n";
+
+    foreach ($users as $u) {
+        echo "----------------------------------------\n";
+        echo "ID            : {$u->id}\n";
+        echo "Username      : {$u->username}\n";
+        echo "Email         : {$u->email}\n";
+        echo "Status        : {$u->status}\n";
+        echo "Email Verified: " . ($u->email_verified_at ? $u->email_verified_at->toDateTimeString() : 'NOT VERIFIED') . "\n";
+        echo "Last Login    : " . ($u->last_login_at    ? $u->last_login_at->toDateTimeString()    : 'Never') . "\n";
+        echo "Last Login IP : " . ($u->last_login_ip    ?? 'N/A') . "\n";
+        echo "Created At    : " . ($u->created_at       ? $u->created_at->toDateTimeString()       : 'N/A') . "\n";
+        echo "2FA Enabled   : " . ($u->two_factor_confirmed_at ? 'Yes' : 'No') . "\n";
+
+        if ($u->actor) {
+            echo "Actor ID      : {$u->actor->id}\n";
+            echo "Actor Status  : {$u->actor->status}\n";
+        }
+
+        $roles = $u->platformRoles->map(fn($upr) => $upr->platformRole)->filter();
+        if ($roles->isNotEmpty()) {
+            echo "Platform Roles:\n";
+            foreach ($roles as $role) {
+                $perms = $role->permissions->pluck('name')->join(', ');
+                echo "  - {$role->name}" . ($perms ? " [permissions: {$perms}]" : '') . "\n";
+            }
+        } else {
+            echo "Platform Roles: none\n";
+        }
+
+        $activeTier = $u->tierAssignments->first();
+        echo "Active Tier   : " . ($activeTier ? $activeTier->tier->name : 'none') . "\n";
+
+        if ($u->socialLogins->isNotEmpty()) {
+            echo "Social Logins : " . $u->socialLogins->pluck('provider')->join(', ') . "\n";
+        }
+
+        if ($u->orgMemberships->isNotEmpty()) {
+            echo "Organisations :\n";
+            foreach ($u->orgMemberships as $m) {
+                $orgName = $m->organization ? $m->organization->name : $m->org_id;
+                echo "  - {$orgName} (role: {$m->role}, status: {$m->status})\n";
+            }
+        }
+
+        echo "\n";
+    }
+})();
+
+(function () {
+    $roles = \Modules\Platform\Models\PlatformRole::with('permissions')->orderBy('name')->get();
+
+    echo "=== PLATFORM ROLES (" . $roles->count() . ") ===\n\n";
+
+    foreach ($roles as $r) {
+        echo "----------------------------------------\n";
+        echo "ID          : {$r->id}\n";
+        echo "Name        : {$r->name}\n";
+        echo "Description : " . ($r->description ?? 'N/A') . "\n";
+        echo "System Role : " . ($r->is_system ? 'Yes' : 'No') . "\n";
+
+        $perms = $r->permissions->pluck('name');
+        if ($perms->isNotEmpty()) {
+            echo "Permissions :\n";
+            foreach ($perms as $p) { echo "  - {$p}\n"; }
+        } else {
+            echo "Permissions : none\n";
+        }
+
+        echo "\n";
+    }
+})();
+
+(function () {
+    $tiers = \Modules\Platform\Models\PlatformTier::orderBy('sort_order')->get();
+
+    echo "=== PLATFORM TIERS (" . $tiers->count() . ") ===\n\n";
+
+    foreach ($tiers as $t) {
+        echo "----------------------------------------\n";
+        echo "ID          : {$t->id}\n";
+        echo "Name        : {$t->name}\n";
+        echo "Description : " . ($t->description ?? 'N/A') . "\n";
+        echo "Default     : " . ($t->is_default ? 'Yes' : 'No') . "\n";
+        echo "Active      : " . ($t->is_active  ? 'Yes' : 'No') . "\n";
+        echo "Sort Order  : {$t->sort_order}\n";
+        echo "\n";
+    }
+})();
+
+(function () {
+    $orgs = \Modules\Platform\Models\Organization::with(['actor','orgMemberships.user'])
+        ->orderBy('created_at','desc')
+        ->get();
+
+    echo "=== ORGANIZATIONS (" . $orgs->count() . ") ===\n\n";
+
+    foreach ($orgs as $o) {
+        echo "----------------------------------------\n";
+        echo "ID          : {$o->id}\n";
+        echo "Name        : {$o->name}\n";
+        echo "Status      : {$o->status}\n";
+        echo "Created At  : " . ($o->created_at ? $o->created_at->toDateTimeString() : 'N/A') . "\n";
+
+        if ($o->orgMemberships->isNotEmpty()) {
+            echo "Members     :\n";
+            foreach ($o->orgMemberships as $m) {
+                $uname = $m->user ? $m->user->email : $m->user_id;
+                echo "  - {$uname} (role: {$m->role}, status: {$m->status})\n";
+            }
+        } else {
+            echo "Members     : none\n";
+        }
+
+        echo "\n";
+    }
+})();
+
+(function () {
+    $logs = \Modules\Platform\Models\AuditLog::orderBy('created_at','desc')
+        ->limit(200)
+        ->get();
+
+    echo "=== AUDIT LOG (latest " . $logs->count() . " entries) ===\n\n";
+
+    foreach ($logs as $l) {
+        echo "[{$l->created_at}] {$l->module} | {$l->action} | {$l->subject_type}:{$l->subject_id}";
+        if ($l->actor_id) { echo " | actor:{$l->actor_id}"; }
+        echo "\n";
+    }
+
+    echo "\n";
+})();
+
