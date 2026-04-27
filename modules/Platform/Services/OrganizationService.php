@@ -264,17 +264,26 @@ class OrganizationService implements OrganizationServiceInterface
 
         return DB::connection('platform')->transaction(function () use ($invitation, $userId) {
 
-            $membership = OrgMembership::create([
-                'user_id' => $userId,
-                'org_id' => $invitation->org_id,
-                'org_role_id' => $invitation->org_role_id,
-                'level' => $invitation->level,
-                'invited_by' => $invitation->invited_by,
-                'status' => 'active',
-                'joined_at' => now(),
-            ]);
-            // After: $membership = OrgMembership::create([...]);
-            $this->eventBus->fire(new \Modules\Platform\Events\MemberActivated($membership), $membership->user_id);
+            // FIX 1: updateOrCreate instead of create — prevents
+            // SQLSTATE[23505] unique violation on org_memberships_user_id_org_id_org_role_id_unique
+            // when the user already has a membership from a previous failed accept attempt.
+            $membership = OrgMembership::updateOrCreate(
+                [
+                    'user_id'     => $userId,
+                    'org_id'      => $invitation->org_id,
+                    'org_role_id' => $invitation->org_role_id,
+                ],
+                [
+                    'level'      => $invitation->level,
+                    'invited_by' => $invitation->invited_by,
+                    'status'     => 'active',
+                    'joined_at'  => now(),
+                ]
+            );
+
+            // FIX 2: removed stray $this->eventBus->fire(...) call —
+            // $eventBus is never injected into OrganizationService,
+            // causing "Undefined property" ErrorException (500) on every accept.
 
             $invitation->update(['status' => 'accepted']);
 
