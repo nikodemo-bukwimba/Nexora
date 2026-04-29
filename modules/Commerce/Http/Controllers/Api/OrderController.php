@@ -82,10 +82,25 @@ class OrderController extends Controller
 
         $sellerActorId = $request->user()->actor_id;
 
-        // ── Multi-tenancy: verify customer belongs to this org ───
-        \Modules\PharmaMarketing\Models\Customer::where('id', $validated['buyer_id'])
-            ->where('org_id', $orgId)
+        // ── Resolve root org and full tree org IDs ──────────────
+        $org       = \Modules\Platform\Models\Organization::findOrFail($orgId);
+        $rootOrgId = $org->root_org_id ?? $orgId;
+
+        $treeOrgIds = app(\Modules\Platform\Contracts\Services\OrgScopeResolverInterface::class)
+            ->scopeIds($rootOrgId);
+
+        // ── Validate customer belongs to any node in the tree ───
+        $customer = \Modules\PharmaMarketing\Models\Customer::whereIn('org_id', $treeOrgIds)
+            ->where('id', $validated['buyer_id'])
             ->firstOrFail();
+
+        // ── Resolve buyer actor ID ───────────────────────────────
+        $buyerActorId = null;
+        if ($customer->platform_user_id) {
+            $platformUser = \Modules\Platform\Models\User::find($customer->platform_user_id);
+            $buyerActorId = $platformUser?->actor_id;
+        }
+        $buyerActorId = $buyerActorId ?? $customer->id;
 
         $orderItems = [];
         $subtotal   = 0;
@@ -93,34 +108,34 @@ class OrderController extends Controller
         foreach ($validated['items'] as $item) {
             $variant = \Modules\Commerce\Models\ProductVariant::findOrFail($item['variant_id']);
 
-            // ── Multi-tenancy: verify variant belongs to this org ──
-            if ($variant->product->org_id !== $orgId) {
+            // ── Validate variant belongs to any node in the tree ─
+            if (! in_array($variant->product->org_id, $treeOrgIds)) {
                 abort(403, 'Variant does not belong to your organisation.');
             }
 
-            $lineTotal = $variant->base_price * $item['quantity'];
-            $subtotal += $lineTotal;
+            $lineTotal  = $variant->base_price * $item['quantity'];
+            $subtotal  += $lineTotal;
 
-        $orderItems[] = [
-            'variant_id'   => $variant->id,
-            'product_id'   => $variant->product_id,
-            'product_name' => $variant->product->name ?? '',
-            'variant_name' => $variant->name,
-            'quantity'     => $item['quantity'],
-            'unit_price'   => $variant->base_price,
-            'subtotal'     => $lineTotal,
-            'total'        => $lineTotal,   // ← ADD THIS
-            'currency'     => $validated['currency'] ?? 'TZS',
-        ];
+            $orderItems[] = [
+                'variant_id'   => $variant->id,
+                'product_id'   => $variant->product_id,
+                'product_name' => $variant->product->name ?? '',
+                'variant_name' => $variant->name,
+                'quantity'     => $item['quantity'],
+                'unit_price'   => $variant->base_price,
+                'subtotal'     => $lineTotal,
+                'total'        => $lineTotal,
+                'currency'     => $validated['currency'] ?? 'TZS',
+            ];
         }
 
         $order = \DB::connection('commerce')->transaction(function () use (
-            $validated, $orgId, $sellerActorId, $orderItems, $subtotal
+            $validated, $orgId, $rootOrgId, $sellerActorId, $buyerActorId, $customer, $orderItems, $subtotal
         ) {
             $order = \Modules\Commerce\Models\Order::create([
                 'seller_org_id'   => $orgId,
-                'buyer_org_id'    => $orgId,        // buyer is also under same org for admin orders
-                'buyer_actor_id'  => $validated['buyer_id'],
+                'buyer_org_id'    => $customer->org_id,
+                'buyer_actor_id'  => $buyerActorId,
                 'seller_actor_id' => $sellerActorId,
                 'status'          => 'confirmed',
                 'subtotal'        => $subtotal,
@@ -128,6 +143,12 @@ class OrderController extends Controller
                 'currency'        => $validated['currency'] ?? 'TZS',
                 'payment_ref'     => $validated['payment_ref'] ?? null,
                 'order_number'    => $this->generateOrderNumber(),
+                'metadata'        => [
+                    'customer_id'   => $customer->id,
+                    'customer_name' => $customer->name,
+                    'customer_code' => $customer->code,
+                    'placed_by'     => 'admin',
+                ],
             ]);
 
             foreach ($orderItems as $item) {

@@ -9,15 +9,11 @@ use Modules\Platform\Contracts\Services\AuthServiceInterface;
 use Modules\Platform\Http\Requests\Auth\ApiLoginRequest;
 use Modules\Platform\Http\Requests\Auth\ApiRegisterRequest;
 use Modules\Platform\Models\User;
-use Modules\PharmaMarketing\Services\CustomerService;
-use Modules\PharmaMarketing\Services\OfficerService;
 
 class AuthController extends Controller
 {
     public function __construct(
-        protected AuthServiceInterface $auth,
-        protected CustomerService $customerService,
-        protected OfficerService $officerService,
+        protected AuthServiceInterface $auth
     ) {}
 
     public function register(ApiRegisterRequest $request): JsonResponse
@@ -25,53 +21,6 @@ class AuthController extends Controller
         $user  = $this->auth->register($request->validated());
         $token = $user->createToken($request->device_name ?? 'api')->plainTextToken;
         $this->auth->recordLogin($user, $request->ip());
-
-        $orgId       = $request->input('org_id');
-        $appType     = $request->input('app_type'); // 'customer' | 'officer'
-        $displayName = $user->actor?->display_name ?? $user->username;
-
-        if ($orgId) {
-            try {
-                if ($appType === 'officer') {
-                    // Try to link to pre-existing pm_officer record (admin-created)
-                    $linked = $this->officerService->linkPlatformUser(
-                        $orgId,
-                        $user->id,
-                        $user->actor_id ?? '',
-                        $user->email
-                    );
-                    // If none found, create a self-registered officer record
-                    if (! $linked) {
-                        $this->officerService->createFromAdminOrg(
-                            orgId:          $orgId,
-                            branchId:       $orgId, // default to root; branch resolved later
-                            platformUserId: $user->id,
-                            actorId:        $user->actor_id ?? '',
-                            name:           $displayName,
-                            email:          $user->email,
-                            source:         'self_registered',
-                        );
-                    }
-                } else {
-                    // Default: customer app registration
-                    $linked = $this->customerService->linkPlatformUser(
-                        $orgId,
-                        $user->id,
-                        $user->email
-                    );
-                    if (! $linked) {
-                        $this->customerService->createFromRegistration(
-                            orgId:          $orgId,
-                            platformUserId: $user->id,
-                            displayName:    $displayName,
-                            email:          $user->email,
-                        );
-                    }
-                }
-            } catch (\Throwable $e) {
-                \Log::warning("Auto-create pharma record failed for user {$user->id}: {$e->getMessage()}");
-            }
-        }
 
         return response()->json([
             'user'  => [
@@ -91,14 +40,11 @@ class AuthController extends Controller
             $request->password,
             $request->device_name ?? 'api'
         );
-
         if (! $token) {
             return response()->json(['message' => 'Invalid credentials.'], 401);
         }
-
         $user = User::where('email', $request->email)->first();
         $this->auth->recordLogin($user, $request->ip());
-
         return response()->json(['token' => $token]);
     }
 
@@ -111,18 +57,15 @@ class AuthController extends Controller
     /**
      * GET /api/v1/auth/me
      *
-     * KEY FIX: The response now always includes user.org_id —
-     * the org_id of the membership used to scope permissions.
+     * Returns the authenticated user with their role and permissions
+     * scoped to the requested org node.
      *
-     * Without org_id:  server picks the user's highest-level active
-     *                  membership across ALL orgs. Best for first login.
-     *
-     * With org_id:     server scopes permissions to that specific org
-     *                  node. Used on refresh after client stores org_id.
-     *
-     * The client MUST persist user.org_id from the first response
-     * and send it as ?org_id= on all subsequent /auth/me calls.
-     * This is what makes branch-member permissions work correctly.
+     * CHANGE: Now also returns `org_status` so the client can distinguish
+     * between:
+     *   - null         → user has no org membership yet (pending activation)
+     *   - pending_approval → user created an org but admin hasn't approved it
+     *   - active       → fully operational org
+     *   - suspended / rejected → org is not usable
      */
     public function me(Request $request): JsonResponse
     {
@@ -130,13 +73,14 @@ class AuthController extends Controller
         $orgId = $request->query('org_id');
 
         $membership = $user->orgMemberships()
-            ->with(['orgRole.permissions'])
+            ->with(['orgRole.permissions', 'organization'])   // ← only change here
             ->where('status', 'active')
             ->when($orgId, fn($q) => $q->where('org_id', $orgId))
             ->orderByDesc('level')
             ->first();
 
         $orgRole     = $membership?->orgRole;
+        $org         = $membership?->organization;            // ← add this
         $permissions = $orgRole?->permissions ?? collect();
 
         $rolePayload = null;
@@ -148,9 +92,6 @@ class AuthController extends Controller
             ];
         }
 
-        // Echo back the org_id that was resolved (from the membership).
-        // The Flutter client stores this and reuses it on every refresh.
-        // This is the fix that eliminates the hardcoded org_id on the client.
         $resolvedOrgId = $membership?->org_id;
 
         return response()->json([
@@ -162,8 +103,9 @@ class AuthController extends Controller
                 'email'        => $user->email,
                 'status'       => $user->status,
                 'is_active'    => $user->status === 'active',
-                // KEY: echoed org_id — client persists this in OrgContext
                 'org_id'       => $resolvedOrgId,
+                'org_status'   => $org?->status,    // ← add: 'active' for your org
+                'org_name'     => $org?->name,      // ← add
                 'primary_role' => $rolePayload,
                 'roles'        => $rolePayload ? [$rolePayload] : [],
             ],
