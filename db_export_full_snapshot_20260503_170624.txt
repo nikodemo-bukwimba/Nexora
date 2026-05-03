@@ -1,11 +1,137 @@
 ﻿// ================================================================
 // Database Export : full_snapshot
-// Generated       : 2026-04-28 19:03:43
+// Generated       : 2026-05-03 17:06:24
 // Project         : D:\Projects\Barick Phamacy\nexora
 // Usage           : Review data or upload to Claude for analysis.
 // ================================================================
 
-=== REGISTERED USERS (28) ===
+=== REGISTERED USERS (35) ===
+
+----------------------------------------
+ID            : 01KQF6A410KERJJ054G28QA4N0
+Username      : nikodemokulwa_jsox
+Email         : nikodemokulwa@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-30 12:37:38
+2FA Enabled   : No
+Actor ID      : 01KQF6A3Q8MVSS2GJE3PKRST9K
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - IRH Mwanza (role: {"id":"01KQB6C87RA3R0PM694C9QDK41","root_org_id":"01KQACX6KM742BSMQ1FSCHW0R4","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-28T23:21:50.000000Z","updated_at":"2026-04-28T23:21:50.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KQF65T3NTF1J998A2FNEWVD2
+Username      : elia_adam_ot12
+Email         : eliaadam@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-30 12:35:17
+2FA Enabled   : No
+Actor ID      : 01KQF65SSVQ13PJH8C7GWVWFSE
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - Bariki Phamarcy Mwanza (role: {"id":"01KMQD8K4Q1SNGCW3YGY9RG481","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-03-27T10:25:58.000000Z","updated_at":"2026-03-27T10:25:58.000000Z","slug":"officer"}, status: active)
+
+----------------------------------------
+ID            : 01KQF5MSASND8A2GQBB9PN09QG
+Username      : mruka_6d3x
+Email         : mruka@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-30 12:25:59
+2FA Enabled   : No
+Actor ID      : 01KQF5MS1SE1DTPEHDQCS03886
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - Dar es Salaam Branch (role: {"id":"01KMQD8K4Q1SNGCW3YGY9RG481","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-03-27T10:25:58.000000Z","updated_at":"2026-03-27T10:25:58.000000Z","slug":"officer"}, status: active)
+
+----------------------------------------
+ID            : 01KQD21ECFYT8WFFAXEZ3DJMH3
+Username      : mashila_ntew
+Email         : mashila@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-29 16:44:30
+2FA Enabled   : No
+Actor ID      : 01KQD21E2SWYFP9V54ZMH9Q7HW
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - IRH Mwanza (role: {"id":"01KQB6TBQHY16Q504ZKJY0NMWX","root_org_id":"01KQACX6KM742BSMQ1FSCHW0R4","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-28T23:29:32.000000Z","updated_at":"2026-04-28T23:29:32.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KQCXP0HQ8K92YT2V616BYPZ7
+Username      : mashauli_lbna
+Email         : mashauli@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-29 15:28:22
+2FA Enabled   : No
+Actor ID      : 01KQCXNZWPCRTNBDD81PYA328Y
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - IRH Mwanza (role: {"id":"01KQB6TBQHY16Q504ZKJY0NMWX","root_org_id":"01KQACX6KM742BSMQ1FSCHW0R4","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-28T23:29:32.000000Z","updated_at":"2026-04-28T23:29:32.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KQB8BB18FEWTHM4FHXA0BETD
+Username      : kasanzu_mpelwa_rsdr
+Email         : kasanzu@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-28 23:56:17
+2FA Enabled   : No
+Actor ID      : 01KQB8BASF5JFX21F4E0VBA850
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - IRH Mwanza (role: {"id":"01KQB6C87RA3R0PM694C9QDK41","root_org_id":"01KQACX6KM742BSMQ1FSCHW0R4","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-28T23:21:50.000000Z","updated_at":"2026-04-28T23:21:50.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KQB6YWF9344C0VCZV1A4BRT1
+Username      : klemos_l5g1
+Email         : klemos@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-04-28 23:32:01
+2FA Enabled   : No
+Actor ID      : 01KQB6YW54WT7ZA02H89STS3XW
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Barick Pharmacy (role: {"id":"01KPVEF21GAAS6PFZNW4SS7SKE","root_org_id":"01KM3J1485S5T17RXQ6JRWF8JR","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-22T20:35:20.000000Z","updated_at":"2026-04-22T20:35:20.000000Z","slug":"customer"}, status: active)
+  - IRH Mwanza (role: {"id":"01KQB6TBQHY16Q504ZKJY0NMWX","root_org_id":"01KQACX6KM742BSMQ1FSCHW0R4","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-04-28T23:29:32.000000Z","updated_at":"2026-04-28T23:29:32.000000Z","slug":null}, status: active)
 
 ----------------------------------------
 ID            : 01KQACRN1E4A8WD1P3K8D9SJYY
@@ -573,8 +699,15 @@ Sort Order  : 2
    Illuminate\Database\Eloquent\RelationNotFoundException  Call to undefined relationship [orgMemberships] on model [Modules\Platform\Models\Organization].
 
 
-=== AUDIT LOG (latest 28 entries) ===
+=== AUDIT LOG (latest 35 entries) ===
 
+[2026-04-30 12:37:38] platform | user.registered | User:01KQF6A410KERJJ054G28QA4N0 | actor:01KQF6A3Q8MVSS2GJE3PKRST9K
+[2026-04-30 12:35:17] platform | user.registered | User:01KQF65T3NTF1J998A2FNEWVD2 | actor:01KQF65SSVQ13PJH8C7GWVWFSE
+[2026-04-30 12:25:59] platform | user.registered | User:01KQF5MSASND8A2GQBB9PN09QG | actor:01KQF5MS1SE1DTPEHDQCS03886
+[2026-04-29 16:44:31] platform | user.registered | User:01KQD21ECFYT8WFFAXEZ3DJMH3 | actor:01KQD21E2SWYFP9V54ZMH9Q7HW
+[2026-04-29 15:28:22] platform | user.registered | User:01KQCXP0HQ8K92YT2V616BYPZ7 | actor:01KQCXNZWPCRTNBDD81PYA328Y
+[2026-04-28 23:56:17] platform | user.registered | User:01KQB8BB18FEWTHM4FHXA0BETD | actor:01KQB8BASF5JFX21F4E0VBA850
+[2026-04-28 23:32:01] platform | user.registered | User:01KQB6YWF9344C0VCZV1A4BRT1 | actor:01KQB6YW54WT7ZA02H89STS3XW
 [2026-04-28 15:54:14] platform | user.registered | User:01KQACRN1E4A8WD1P3K8D9SJYY | actor:01KQACRMRMHW8FYNZS825VG0JQ
 [2026-04-28 10:17:08] platform | user.registered | User:01KQ9SFD8YHV148ZBAZRF7N450 | actor:01KQ9SFCZN1H327XPQDFS7VEM8
 [2026-04-28 09:44:25] platform | user.registered | User:01KQ9QKG3RW5C13SVT4MG8G3YV | actor:01KQ9QKFNANR6KY3H9R9J8GDGP
