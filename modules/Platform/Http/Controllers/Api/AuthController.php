@@ -104,8 +104,9 @@ class AuthController extends Controller
                 'status'       => $user->status,
                 'is_active'    => $user->status === 'active',
                 'org_id'       => $resolvedOrgId,
-                'org_status'   => $org?->status,    // ← add: 'active' for your org
-                'org_name'     => $org?->name,      // ← add
+                'root_org_id'  => $org?->root_org_id ?? $resolvedOrgId,  // ← ADD
+                'org_status'   => $org?->status,
+                'org_name'     => $org?->name,
                 'primary_role' => $rolePayload,
                 'roles'        => $rolePayload ? [$rolePayload] : [],
             ],

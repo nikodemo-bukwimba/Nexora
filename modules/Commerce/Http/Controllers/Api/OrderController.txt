@@ -23,13 +23,7 @@ class OrderController extends Controller
 
     public function forSeller(Request $request, string $orgId): JsonResponse
     {
-        return response()->json(
-            $this->orders->listForSeller(
-                $orgId,
-                $request->only(['status', 'branch_id', 'created_by_id']),
-                (int) $request->get('per_page', 25)
-            )
-        );
+        return response()->json($this->orders->listForSeller($orgId, $request->only(['status']), (int) $request->get('per_page', 25)));
     }
 
     public function confirm(string $id): JsonResponse
@@ -78,85 +72,45 @@ class OrderController extends Controller
     public function adminStore(Request $request, string $orgId): JsonResponse
     {
         $validated = $request->validate([
-            'buyer_id'                 => ['required', 'string'],
-            'buyer_type'               => ['nullable', 'string', 'in:customer,actor'],
-            'items'                    => ['required', 'array', 'min:1'],
-            'items.*.variant_id'       => ['required', 'string'],   // ← removed exists: check
-            'items.*.quantity'         => ['required', 'integer', 'min:1'],
-            'payment_ref'              => ['nullable', 'string'],
-            'currency'                 => ['nullable', 'string', 'size:3'],
-            'notes'                    => ['nullable', 'string'],
-            'metadata'                 => ['nullable', 'array'],
-            'metadata.created_by_name' => ['nullable', 'string', 'max:255'],
-            'metadata.created_by_id'   => ['nullable', 'string', 'max:26'],
+            'buyer_id'           => ['required', 'string'],
+            'items'              => ['required', 'array', 'min:1'],
+            'items.*.variant_id' => ['required', 'string', 'exists:commerce.product_variants,id'],
+            'items.*.quantity'   => ['required', 'integer', 'min:1'],
+            'payment_ref'        => ['nullable', 'string'],
+            'currency'           => ['nullable', 'string', 'size:3'],
         ]);
 
         $sellerActorId = $request->user()->actor_id;
-        $buyerType     = $validated['buyer_type'] ?? 'customer';
 
+        // ── Resolve root org and full tree org IDs ──────────────
         $org       = \Modules\Platform\Models\Organization::findOrFail($orgId);
         $rootOrgId = $org->root_org_id ?? $orgId;
 
-        $treeOrgIds = \Modules\Platform\Models\Organization::where('root_org_id', $rootOrgId)
-            ->orWhere('id', $rootOrgId)
-            ->pluck('id')
-            ->toArray();
+        $treeOrgIds = app(\Modules\Platform\Contracts\Services\OrgScopeResolverInterface::class)
+            ->scopeIds($rootOrgId);
 
-        // ── Resolve buyer ───────────────────────────────────────
+        // ── Validate customer belongs to any node in the tree ───
+        $customer = \Modules\PharmaMarketing\Models\Customer::whereIn('org_id', $treeOrgIds)
+            ->where('id', $validated['buyer_id'])
+            ->firstOrFail();
+
+        // ── Resolve buyer actor ID ───────────────────────────────
         $buyerActorId = null;
-        $buyerOrgId   = $orgId;
-        $customerMeta = [];
-
-        if ($buyerType === 'actor') {
-            $actor = \Modules\Platform\Models\Actor::find($validated['buyer_id']);
-            if (! $actor) {
-                return response()->json(['message' => 'Buyer actor not found.'], 404);
-            }
-            $buyerActorId = $actor->id;
-            $customerMeta = ['buyer_actor_id' => $actor->id, 'buyer_name' => $actor->display_name ?? '', 'placed_by' => 'customer_app'];
-        } else {
-            $customer = \Modules\PharmaMarketing\Models\Customer::whereIn('org_id', $treeOrgIds)
-                ->where('id', $validated['buyer_id'])
-                ->first();
-
-            if (! $customer) {
-                return response()->json([
-                    'message' => 'Customer not found in your organisation.',
-                ], 404);
-            }
-
-            if ($customer->platform_user_id) {
-                $platformUser = \Modules\Platform\Models\User::find($customer->platform_user_id);
-                $buyerActorId = $platformUser?->actor_id;
-            }
-            $buyerActorId = $buyerActorId ?? $customer->id;
-            $buyerOrgId   = $customer->org_id;
-            $customerMeta = [
-                'customer_id'   => $customer->id,
-                'customer_name' => $customer->name,
-                'customer_code' => $customer->code,
-                'placed_by'     => 'admin',
-            ];
+        if ($customer->platform_user_id) {
+            $platformUser = \Modules\Platform\Models\User::find($customer->platform_user_id);
+            $buyerActorId = $platformUser?->actor_id;
         }
+        $buyerActorId = $buyerActorId ?? $customer->id;
 
-        // ── Resolve and validate items BEFORE the transaction ───
         $orderItems = [];
         $subtotal   = 0;
 
         foreach ($validated['items'] as $item) {
-            $variant = \Modules\Commerce\Models\ProductVariant::with('product')
-                ->find($item['variant_id']);
+            $variant = \Modules\Commerce\Models\ProductVariant::findOrFail($item['variant_id']);
 
-            if (! $variant) {
-                return response()->json([
-                    'message' => "Product variant '{$item['variant_id']}' not found.",
-                ], 422);
-            }
-
-            if (! $variant->product || ! in_array($variant->product->org_id, $treeOrgIds)) {
-                return response()->json([
-                    'message' => "Variant '{$variant->id}' does not belong to your organisation.",
-                ], 403);
+            // ── Validate variant belongs to any node in the tree ─
+            if (! in_array($variant->product->org_id, $treeOrgIds)) {
+                abort(403, 'Variant does not belong to your organisation.');
             }
 
             $lineTotal  = $variant->base_price * $item['quantity'];
@@ -175,30 +129,12 @@ class OrderController extends Controller
             ];
         }
 
-        // ── Build metadata ───────────────────────────────────────
-        $incomingMeta = $request->input('metadata', []);
-        $actor        = $request->user();
-        $metadata     = array_merge(
-            $customerMeta,
-            [
-                'notes'           => $validated['notes'] ?? null,
-                'created_by_name' => $incomingMeta['created_by_name']
-                                    ?? $actor?->actor?->display_name
-                                    ?? $actor?->username
-                                    ?? 'admin',
-                'created_by_id'   => $incomingMeta['created_by_id']
-                                    ?? $actor?->actor_id,
-            ]
-        );
-
-        // ── Persist ──────────────────────────────────────────────
         $order = \DB::connection('commerce')->transaction(function () use (
-            $validated, $orgId, $buyerOrgId, $sellerActorId, $buyerActorId,
-            $orderItems, $subtotal, $metadata
+            $validated, $orgId, $rootOrgId, $sellerActorId, $buyerActorId, $customer, $orderItems, $subtotal
         ) {
             $order = \Modules\Commerce\Models\Order::create([
                 'seller_org_id'   => $orgId,
-                'buyer_org_id'    => $buyerOrgId,
+                'buyer_org_id'    => $customer->org_id,
                 'buyer_actor_id'  => $buyerActorId,
                 'seller_actor_id' => $sellerActorId,
                 'status'          => 'confirmed',
@@ -207,7 +143,12 @@ class OrderController extends Controller
                 'currency'        => $validated['currency'] ?? 'TZS',
                 'payment_ref'     => $validated['payment_ref'] ?? null,
                 'order_number'    => $this->generateOrderNumber(),
-                'metadata'        => $metadata,
+                'metadata'        => [
+                    'customer_id'   => $customer->id,
+                    'customer_name' => $customer->name,
+                    'customer_code' => $customer->code,
+                    'placed_by'     => 'admin',
+                ],
             ]);
 
             foreach ($orderItems as $item) {

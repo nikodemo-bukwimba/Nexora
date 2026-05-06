@@ -118,6 +118,10 @@ class OrderService
 
         return Order::whereIn('seller_org_id', $orgIds)
             ->when(isset($filters['status']), fn($q) => $q->where('status', $filters['status']))
+            ->when(
+                !empty($filters['created_by_id']),
+                fn($q) => $q->whereRaw("metadata->>'created_by_id' = ?", [$filters['created_by_id']])
+            )
             ->with(['items'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
