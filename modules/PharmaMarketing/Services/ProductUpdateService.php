@@ -3,7 +3,6 @@
 namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
 use Modules\PharmaMarketing\Models\Customer;
 use Modules\PharmaMarketing\Models\ProductUpdate;
@@ -18,11 +17,20 @@ class ProductUpdateService
 
     public function create(string $orgId, string $createdBy, array $data): ProductUpdate
     {
-        return ProductUpdate::create(array_merge($data, [
-            'org_id'     => $orgId,
-            'created_by' => $createdBy,
-            'status'     => 'draft',
-        ]));
+        return ProductUpdate::create(array_merge(
+            array_intersect_key($data, array_flip([
+                'title', 'body', 'update_type', 'target_segment', 'target_filters',
+                'send_in_app', 'send_whatsapp', 'send_sms',
+                'product_ids', 'media_url', 'media_type',
+                'scheduled_at', 'start_date', 'end_date',
+                'discount_percentage',
+            ])),
+            [
+                'org_id'     => $orgId,
+                'created_by' => $createdBy,
+                'status'     => 'draft',
+            ]
+        ));
     }
 
     public function get(string $id): ProductUpdate
@@ -33,8 +41,8 @@ class ProductUpdateService
     /**
      * List product updates with org-tree awareness.
      *
-     * Root admin   → sees updates from ALL branches
-     * Branch user  → sees updates from their branch only
+     * Root admin  → sees updates from ALL branches
+     * Branch user → sees updates from their branch only
      */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
@@ -56,6 +64,7 @@ class ProductUpdateService
             'product_ids', 'media_url', 'media_type',
             'status', 'scheduled_at',
             'start_date', 'end_date',
+            'discount_percentage',
         ])));
         return $update->fresh();
     }
@@ -111,9 +120,7 @@ class ProductUpdateService
 
     private function resolveTargetCustomers(ProductUpdate $update)
     {
-        // Product updates target ALL customers in the org tree
-        $orgIds = $this->scope->scopeIds($update->org_id);
-
+        $orgIds  = $this->scope->scopeIds($update->org_id);
         $query   = Customer::whereIn('org_id', $orgIds)->where('status', 'active');
         $segment = $update->target_segment;
         $filters = $update->target_filters ?? [];
@@ -121,9 +128,9 @@ class ProductUpdateService
         if ($segment === 'b2b') $query->where('customer_type', 'b2b');
         if ($segment === 'b2c') $query->where('customer_type', 'b2c');
 
-        if (str_starts_with($segment, 'tier:'))     $query->where('tier', substr($segment, 5));
-        if (str_starts_with($segment, 'category:')) $query->where('category', substr($segment, 9));
-        if (! empty($filters['county']))             $query->where('county', $filters['county']);
+        if (str_starts_with($segment ?? '', 'tier:'))     $query->where('tier', substr($segment, 5));
+        if (str_starts_with($segment ?? '', 'category:')) $query->where('category', substr($segment, 9));
+        if (!empty($filters['county']))                   $query->where('county', $filters['county']);
 
         return $query->get();
     }

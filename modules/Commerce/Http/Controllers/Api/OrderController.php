@@ -81,8 +81,9 @@ class OrderController extends Controller
             'buyer_id'                 => ['required', 'string'],
             'buyer_type'               => ['nullable', 'string', 'in:customer,actor'],
             'items'                    => ['required', 'array', 'min:1'],
-            'items.*.variant_id'       => ['required', 'string'],   // ← removed exists: check
+            'items.*.variant_id'       => ['required', 'string'],
             'items.*.quantity'         => ['required', 'integer', 'min:1'],
+            'items.*.unit_price'       => ['nullable', 'numeric', 'min:0'],
             'payment_ref'              => ['nullable', 'string'],
             'currency'                 => ['nullable', 'string', 'size:3'],
             'notes'                    => ['nullable', 'string'],
@@ -159,19 +160,26 @@ class OrderController extends Controller
                 ], 403);
             }
 
-            $lineTotal  = $variant->base_price * $item['quantity'];
+            // Use client-supplied unit_price (promotion/effective price) when
+            // provided; fall back to variant base_price for non-promoted items.
+            $unitPrice  = isset($item['unit_price']) && $item['unit_price'] > 0
+                ? (float) $item['unit_price']
+                : (float) $variant->base_price;
+
+            $lineTotal  = $unitPrice * $item['quantity'];
             $subtotal  += $lineTotal;
 
             $orderItems[] = [
-                'variant_id'   => $variant->id,
-                'product_id'   => $variant->product_id,
-                'product_name' => $variant->product->name ?? '',
-                'variant_name' => $variant->name,
-                'quantity'     => $item['quantity'],
-                'unit_price'   => $variant->base_price,
-                'subtotal'     => $lineTotal,
-                'total'        => $lineTotal,
-                'currency'     => $validated['currency'] ?? 'TZS',
+                'variant_id'      => $variant->id,
+                'product_id'      => $variant->product_id,
+                'product_name'    => $variant->product->name ?? '',
+                'variant_name'    => $variant->name,
+                'quantity'        => $item['quantity'],
+                'unit_price'      => $unitPrice,
+                'subtotal'        => $lineTotal,
+                'total'           => $lineTotal,
+                'currency'        => $validated['currency'] ?? 'TZS',
+                'discount_amount' => max(0, ((float) $variant->base_price - $unitPrice) * $item['quantity']),
             ];
         }
 

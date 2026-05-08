@@ -7,6 +7,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Modules\PharmaMarketing\Models\Customer;
@@ -18,116 +19,170 @@ class SendProductUpdateToCustomer implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries   = 3;
-    public int $timeout = 30;
+    public int $backoff = 60;
 
     public function __construct(
         public readonly ProductUpdateDelivery $delivery,
         public readonly ProductUpdate         $update,
-        public readonly Customer              $customer,
+        public readonly Customer              $customer
     ) {}
 
     public function handle(): void
     {
-        try {
-            match ($this->delivery->channel) {
-                'whatsapp' => $this->sendWhatsApp(),
-                'sms'      => $this->sendSms(),
-                'in_app'   => $this->sendInApp(),
-                default    => throw new \RuntimeException("Unknown channel: {$this->delivery->channel}"),
-            };
+        match ($this->delivery->channel) {
+            'sms', 'whatsapp' => $this->sendViaMobiShastra(),
+            'in_app'          => $this->markInAppSent(),
+            default           => $this->markFailed('Unknown channel: ' . $this->delivery->channel),
+        };
+    }
 
-            $this->delivery->update([
-                'status'  => 'sent',
-                'sent_at' => now(),
+    // ── SMS / WhatsApp via MobiShastra Push API ────────────────
+
+    private function sendViaMobiShastra(): void
+    {
+        $user     = config('pharma_marketing.mobishastra.user');
+        $pwd      = config('pharma_marketing.mobishastra.password');
+        $senderId = config('pharma_marketing.mobishastra.sender_id', 'BARICK');
+
+        if (!$user || !$pwd) {
+            $this->markFailed('MobiShastra credentials not configured.');
+            return;
+        }
+
+        $mobile = $this->delivery->recipient_address;
+        if (!$mobile) {
+            $this->markFailed('No recipient phone number.');
+            return;
+        }
+
+        $message = $this->buildSmsMessage();
+
+        try {
+            $response = Http::timeout(15)->get('https://mshastra.com/sendurlcomma.aspx', [
+                'user'        => $user,
+                'pwd'         => $pwd,
+                'senderid'    => $senderId,
+                'mobileno'    => $mobile,
+                'msgtext'     => $message,
+                'priority'    => 'High',
+                'CountryCode' => 'ALL',
             ]);
+
+            $body = trim($response->body());
+
+            // MobiShastra returns "Send Successful" in body on success
+            if (str_contains($body, 'Send Successful')) {
+                $this->delivery->update([
+                    'status'              => 'sent',
+                    'external_message_id' => $this->extractMessageId($body),
+                    'sent_at'             => now(),
+                ]);
+                $this->update->increment('sent_count');
+            } else {
+                $this->markFailed($body ?: 'Unknown MobiShastra error');
+            }
         } catch (\Throwable $e) {
-            Log::warning("Product update delivery failed", [
+            Log::warning('MobiShastra SMS failed', [
                 'delivery_id' => $this->delivery->id,
-                'channel'     => $this->delivery->channel,
                 'error'       => $e->getMessage(),
             ]);
-
-            $this->delivery->increment('retry_count');
-
-            if ($this->attempts() >= $this->tries) {
-                $this->delivery->update([
-                    'status'         => 'failed',
-                    'failure_reason' => $e->getMessage(),
-                ]);
-            }
-
-            throw $e;
+            $this->markFailed($e->getMessage());
         }
     }
 
-    private function sendWhatsApp(): void
+    // ── Build fixed SMS template ───────────────────────────────
+    //
+    //  Dear {customer_name},
+    //  {OrgName} has an update for you:
+    //
+    //  Products: Product A, Product B, Product C
+    //  Discount: 20% OFF          ← only when discount_percentage is set
+    //
+    //  Visit us or contact your representative.
+
+    private function buildSmsMessage(): string
     {
-        $apiKey = config('pharma_marketing.whatsapp_api_key');
-        if (! $apiKey) {
-            Log::debug('WhatsApp API key not configured — skipped (dev mode)');
-            return;
+        $orgName      = $this->resolveOrgName();
+        $customerName = $this->customer->name ?? 'Valued Customer';
+        $productNames = $this->resolveProductNames();
+        $discount     = $this->update->discount_percentage;
+
+        $productLine  = !empty($productNames)
+            ? 'Products: ' . implode(', ', $productNames)
+            : 'New products available';
+
+        $discountLine = $discount
+            ? "\nDiscount: {$discount}% OFF"
+            : '';
+
+        return "Dear {$customerName},\n"
+             . "{$orgName} has an update for you:\n\n"
+             . "{$productLine}"
+             . "{$discountLine}\n\n"
+             . "Visit us or contact your representative.";
+    }
+
+    // ── Resolve product names from product_ids ─────────────────
+
+    private function resolveProductNames(): array
+    {
+        $ids = $this->update->product_ids ?? [];
+
+        if (empty($ids)) {
+            return [];
         }
 
-        $driver = config('pharma_marketing.whatsapp_driver', 'twilio');
-        $to     = $this->delivery->recipient_address;
-        $body   = "**{$this->update->title}**\n\n{$this->update->body}";
+        return DB::connection('commerce')
+            ->table('products')
+            ->whereIn('id', $ids)
+            ->pluck('name')
+            ->toArray();
+    }
 
-        // Twilio implementation — adapt per driver
-        $response = Http::withBasicAuth(
-            config('pharma_marketing.whatsapp_api_key'),
-            config('pharma_marketing.whatsapp_auth_token')
-        )->post("https://api.twilio.com/2010-04-01/Accounts/" . config('pharma_marketing.twilio_account_sid') . "/Messages.json", [
-            'From' => 'whatsapp:' . config('pharma_marketing.whatsapp_from'),
-            'To'   => 'whatsapp:' . $to,
-            'Body' => $body,
+    // ── Resolve org name ───────────────────────────────────────
+
+    private function resolveOrgName(): string
+    {
+        return DB::connection('platform')
+            ->table('organizations')
+            ->where('id', $this->update->org_id)
+            ->value('name') ?? 'Barick Pharmacy';
+    }
+
+    // ── In-app delivery (no external call needed) ──────────────
+
+    private function markInAppSent(): void
+    {
+        $this->delivery->update([
+            'status'  => 'sent',
+            'sent_at' => now(),
         ]);
-
-        if (! $response->ok()) {
-            throw new \RuntimeException("WhatsApp delivery failed: {$response->body()}");
-        }
-
-        $this->delivery->update(['external_message_id' => $response->json('sid')]);
+        $this->update->increment('sent_count');
     }
 
-    private function sendSms(): void
+    // ── Helpers ────────────────────────────────────────────────
+
+    private function extractMessageId(string $body): ?string
     {
-        $apiKey = config('pharma_marketing.sms_api_key');
-        if (! $apiKey) {
-            Log::debug('SMS API key not configured — skipped (dev mode)');
-            return;
+        // MobiShastra body format: "MsgID: 123456 Send Successful"
+        if (preg_match('/MsgID[:\s]+(\d+)/i', $body, $m)) {
+            return $m[1];
         }
+        return null;
+    }
 
-        $to   = $this->delivery->recipient_address;
-        $body = "{$this->update->title}: {$this->update->body}";
-
-        // Generic SMS — adapt per driver (Twilio, Africastalking, Vonage, etc.)
-        $response = Http::withBasicAuth(
-            config('pharma_marketing.sms_api_key'),
-            config('pharma_marketing.sms_auth_token')
-        )->post("https://api.twilio.com/2010-04-01/Accounts/" . config('pharma_marketing.twilio_account_sid') . "/Messages.json", [
-            'From' => config('pharma_marketing.sms_from'),
-            'To'   => $to,
-            'Body' => $body,
+    private function markFailed(string $reason): void
+    {
+        $this->delivery->update([
+            'status'         => 'failed',
+            'failure_reason' => $reason,
+            'retry_count'    => $this->delivery->retry_count + 1,
         ]);
+        $this->update->increment('failed_count');
 
-        if (! $response->ok()) {
-            throw new \RuntimeException("SMS delivery failed: {$response->body()}");
-        }
-
-        $this->delivery->update(['external_message_id' => $response->json('sid')]);
-    }
-
-    private function sendInApp(): void
-    {
-        // Delegates to Notifications module
-        $notifService = app(\Modules\Notifications\Services\NotificationService::class);
-        $notifService->send(
-            actorId:  $this->customer->assigned_officer_id ?? 'system',
-            type:     'product.update',
-            title:    $this->update->title,
-            body:     $this->update->body,
-            refType:  'ProductUpdate',
-            refId:    $this->update->id,
-        );
+        Log::warning('Product update delivery failed', [
+            'delivery_id' => $this->delivery->id,
+            'reason'      => $reason,
+        ]);
     }
 }
