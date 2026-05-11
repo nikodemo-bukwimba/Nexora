@@ -28,7 +28,7 @@ class PromotionPricingService
      * For Eloquent models the fields are set as virtual attributes in-place.
      * For arrays/objects a decorated copy is returned.
      */
-    public function decorateVariants(string $orgId, $variants): Collection
+    public function decorateVariants(array|string $orgIds, $variants): Collection
     {
         $variants = collect($variants);
 
@@ -41,7 +41,7 @@ class PromotionPricingService
             : (is_array($v) ? $v['id'] : $v->id)
         )->all();
 
-        $activeDiscounts = $this->resolveActiveDiscounts($orgId, $variantIds);
+        $activeDiscounts = $this->resolveActiveDiscounts($orgIds, $variantIds);
 
         return $variants->map(function ($variant) use ($activeDiscounts) {
             $isModel   = $variant instanceof ProductVariant;
@@ -90,14 +90,13 @@ class PromotionPricingService
      * with { product_update_id, discount_percentage } representing the best
      * (highest discount) active promotion for that variant.
      */
-    private function resolveActiveDiscounts(string $orgId, array $variantIds): Collection
+    private function resolveActiveDiscounts(array|string $orgIds, array $variantIds): Collection
     {
         $today = now()->toDateString();
 
-        // Step 1: active promotions for this org that are in window and have a discount
         $promotions = DB::connection('pharma_marketing')
             ->table('pm_product_updates')
-            ->where('org_id', $orgId)
+            ->whereIn('org_id', (array) $orgIds)  // ← only this line changes
             ->whereIn('status', ['sending', 'sent'])
             ->whereNotNull('start_date')
             ->whereNotNull('end_date')

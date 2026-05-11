@@ -48,6 +48,15 @@ class ProductUpdateService
     {
         $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
 
+        // ── FIX ───────────────────────────────────────────────────────────────
+        // Promotions are created at root org level and apply tree-wide.
+        // When a branch manager requests product-updates, $orgIds only contains
+        // their branch ID — missing the root org where promotions actually live.
+        // Always include the root org so branch users see root-level promotions.
+        $rootOrgId = \Modules\Platform\Models\Organization::find($orgId)?->root_org_id ?? $orgId;
+        $orgIds    = collect($orgIds)->push($rootOrgId)->unique()->values()->all();
+        // ── END FIX ───────────────────────────────────────────────────────────
+
         return ProductUpdate::whereIn('org_id', $orgIds)
             ->when(isset($filters['status']),      fn($q) => $q->where('status', $filters['status']))
             ->when(isset($filters['update_type']), fn($q) => $q->where('update_type', $filters['update_type']))

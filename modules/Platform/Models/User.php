@@ -48,6 +48,29 @@ class User extends PlatformModel implements
         'two_factor_recovery_codes',
     ];
 
+    /**
+     * Problem #1 FIX — expose 'name' (actor.display_name) in every
+     * JSON serialization of the User model.
+     *
+     * The Flutter OfficerModel.fromJson reads user['name'] first.
+     * Without this appended attribute the field is absent and Flutter
+     * falls back to user['username'] — the random generated value.
+     *
+     * NOTE: Only appended when actor is already eager-loaded to avoid
+     * N+1 queries. When actor is not loaded the username is used, which
+     * is still better than a blank string.
+     */
+    protected $appends = ['name'];
+
+    public function getNameAttribute(): string
+    {
+        if ($this->relationLoaded('actor') && $this->actor !== null) {
+            return $this->actor->display_name ?? $this->username;
+        }
+        // actor not loaded — return username rather than triggering a query
+        return $this->username;
+    }
+
     protected function casts(): array
     {
         return [

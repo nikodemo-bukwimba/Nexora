@@ -26,17 +26,27 @@ class ProductController extends Controller
             (int) $request->get('per_page', 25)
         );
 
-        // Decorate all variants across all products in one batch query
-        $this->decoratePaginator($orgId, $paginator);
+        // Root org promotions → all branches see them.
+        // Branch own promotions → only that branch sees them.
+        // Other branches' promotions → excluded.
+        $rootOrgId = \Modules\Platform\Models\Organization::find($orgId)?->root_org_id ?? $orgId;
+        $orgIdsForPricing = collect([$rootOrgId, $orgId])->unique()->values()->all();
+
+        $this->decoratePaginator($orgIdsForPricing, $paginator);
 
         return response()->json($paginator);
     }
 
     /** GET /api/v1/commerce/products/{id} */
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
         $product = $this->products->get($id);
-        $this->decorateProduct($product->org_id, $product);
+
+        // Use requesting org from query param to include branch-specific promotions.
+        // Falls back to $product->org_id (root) when not provided.
+        $requestingOrgId = $request->query('org_id', $product->org_id);
+
+        $this->decorateProduct($requestingOrgId, $product);
         return response()->json($product);
     }
 
@@ -99,7 +109,7 @@ class ProductController extends Controller
      * resolution, then writes results back onto each variant model instance.
      */
     private function decoratePaginator(
-        string $orgId,
+        array|string $orgIds,
         \Illuminate\Pagination\LengthAwarePaginator $paginator
     ): void {
         $allVariants = $paginator->getCollection()
@@ -109,19 +119,18 @@ class ProductController extends Controller
             return;
         }
 
-        // decorateVariants sets virtual attributes in-place on Eloquent models
-        $this->pricing->decorateVariants($orgId, $allVariants);
+        $this->pricing->decorateVariants($orgIds, $allVariants);
     }
 
-    /**
-     * Decorate variants of a single Product model in-place.
-     */
     private function decorateProduct(string $orgId, Product $product): void
     {
         if ($product->variants->isEmpty()) {
             return;
         }
 
-        $this->pricing->decorateVariants($orgId, $product->variants);
+        $rootOrgId = \Modules\Platform\Models\Organization::find($orgId)?->root_org_id ?? $orgId;
+        $orgIdsForPricing = collect([$rootOrgId, $orgId])->unique()->values()->all();
+
+        $this->pricing->decorateVariants($orgIdsForPricing, $product->variants);
     }
 }
