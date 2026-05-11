@@ -14,16 +14,18 @@ return new class extends Migration
             $table->char('id', 26)->primary();
 
             // Owning org + assigned officer
-            $table->char('org_id', 26);                       // Barick org that owns this customer
-            $table->char('assigned_officer_id', 26)->nullable(); // Platform actor_id of field officer
+            $table->char('org_id', 26);
+            $table->char('assigned_officer_id', 26)->nullable();
+            $table->char('platform_user_id', 26)->nullable();
+            $table->string('registration_source', 30)->default('admin'); // admin|self|import
 
             // Customer identity
-            $table->string('customer_type', 50)->default('b2b'); // b2b|b2c
-            $table->string('name', 255);                       // Business name or full name
-            $table->string('code', 100)->nullable();            // Internal customer code
-            $table->string('category', 100)->nullable();        // clinic|hospital|pharmacy|wholesaler|individual|other
-            $table->string('tier', 50)->default('standard');   // standard|silver|gold|platinum
-            $table->string('status', 50)->default('active');   // active|inactive|blacklisted
+            $table->string('customer_type', 50)->default('b2b');
+            $table->string('name', 255);
+            $table->string('code', 100)->nullable();
+            $table->string('category', 100)->nullable();
+            $table->string('tier', 50)->default('standard');
+            $table->string('status', 50)->default('active');
 
             // B2B specific
             $table->string('business_registration', 100)->nullable();
@@ -42,7 +44,7 @@ return new class extends Migration
             $table->string('phone', 30)->nullable();
             $table->string('alt_phone', 30)->nullable();
             $table->string('email', 255)->nullable();
-            $table->string('whatsapp_number', 30)->nullable();   // may differ from phone
+            $table->string('whatsapp_number', 30)->nullable();
 
             // Preferences
             $table->boolean('receives_whatsapp')->default(true);
@@ -60,6 +62,8 @@ return new class extends Migration
 
             $table->index('org_id');
             $table->index('assigned_officer_id');
+            $table->index('platform_user_id');
+            $table->index('registration_source');
             $table->index('customer_type');
             $table->index('status');
             $table->index('category');

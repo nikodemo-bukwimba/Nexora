@@ -15,14 +15,15 @@ return new class extends Migration
             $table->char('user_id', 26);
             $table->char('org_id', 26);
             $table->char('org_role_id', 26);
-            // Level is independent of role. 0-100. Level 100 = tree-wide authority.
             $table->smallInteger('level')->default(0);
             $table->char('invited_by', 26)->nullable();
-            $table->string('status', 50)->default('invited'); // invited|active|suspended
+            $table->string('invite_token', 64)->nullable()->unique();
+            $table->timestamp('invite_expires_at')->nullable();
+            $table->string('status', 50)->default('invited');
             $table->timestamp('joined_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['user_id', 'org_id', 'org_role_id']);
+            $table->unique(['user_id', 'org_id']);
             $table->index('user_id');
             $table->index('org_id');
             $table->index('status');
@@ -41,7 +42,6 @@ return new class extends Migration
                   ->onDelete('set null');
         });
 
-        // Enforce level range at database level
         \Illuminate\Support\Facades\DB::connection('platform')->statement(
             'ALTER TABLE org_memberships ADD CONSTRAINT chk_level_range CHECK (level BETWEEN 0 AND 100)'
         );

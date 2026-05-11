@@ -16,13 +16,15 @@ return new class extends Migration
             $table->char('actor_id', 26)->unique();
             $table->char('parent_id', 26)->nullable();
             $table->char('root_org_id', 26)->nullable();
-            // ltree path — cast via raw statement after table creation
             $table->string('path', 500);
             $table->smallInteger('depth')->default(0);
             $table->string('name', 255);
             $table->string('slug', 255)->unique();
-            $table->string('type', 50)->default('root');     // root|branch
-            $table->string('status', 50)->default('active'); // active|suspended|inactive
+            $table->string('type', 50)->default('root');
+            $table->string('status', 50)->default('pending_approval');
+            $table->char('approved_by', 26)->nullable();
+            $table->timestamp('approved_at')->nullable();
+            $table->text('rejection_reason')->nullable();
             $table->jsonb('settings')->nullable();
             $table->timestamps();
             $table->softDeletes();
@@ -31,21 +33,20 @@ return new class extends Migration
             $table->index('parent_id');
             $table->index('status');
 
-            // actor_id FK — actors table already exists, safe here
             $table->foreign('actor_id')
                   ->references('id')->on('actors');
+
+            $table->foreign('approved_by')
+                  ->references('id')->on('users')
+                  ->onDelete('set null');
         });
 
-        // Cast path column to ltree and add GiST index
         DB::connection('platform')->statement(
             'ALTER TABLE organizations ALTER COLUMN path TYPE ltree USING path::ltree'
         );
         DB::connection('platform')->statement(
             'CREATE INDEX idx_organizations_path ON organizations USING GIST (path)'
         );
-
-        // Self-referential FKs added in migration 009b after
-        // the primary key is fully committed by PostgreSQL
     }
 
     public function down(): void
