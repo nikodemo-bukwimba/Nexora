@@ -1,4 +1,24 @@
 <?php
+// FILE: modules/Platform/Http/Controllers/Api/Org/OrgMembershipController.php
+//
+// CHANGES — three fixes, all in index() and show():
+//
+// FIX 1 — index() for root org:
+//   Was returning ALL memberships across the tree including root org rows.
+//   Flutter picked up the root membership (branch_manager role, root org_id)
+//   instead of the branch membership. Now returns only the MOST RELEVANT
+//   membership per user: branch membership preferred over root membership.
+//
+// FIX 2 — show():
+//   Was querying by org_id from the URL. If the URL had root org id but the
+//   officer's active membership is on a branch, it returned the root row →
+//   wrong role, wrong branch. Now resolves the officer's CURRENT branch from
+//   pm_officers first, then returns that membership enriched with branch data.
+//
+// FIX 3 — both methods:
+//   Response now includes branch_id and branch_name from pm_officers so
+//   OfficerModel.fromJson() can read the correct branch without falling
+//   back to org_id (which is always the membership's org, not the branch).
 
 namespace Modules\Platform\Http\Controllers\Api\Org;
 
@@ -14,6 +34,7 @@ use Modules\Platform\Models\OrgInvitation;
 use Modules\Platform\Models\OrgMembership;
 use Modules\Platform\Models\OrgRole;
 use Modules\Platform\Models\Organization;
+use Modules\PharmaMarketing\Models\PmOfficer;
 
 class OrgMembershipController extends Controller
 {
@@ -21,9 +42,7 @@ class OrgMembershipController extends Controller
         protected OrganizationServiceInterface $orgService
     ) {}
 
-    // ────────────────────────────────────────────────────────────
-    // GET /api/v1/orgs/{orgId}/members
-    // ────────────────────────────────────────────────────────────
+    // ── GET /api/v1/orgs/{orgId}/members ─────────────────────────────────────
     public function index(Request $request, string $orgId): JsonResponse
     {
         $org = Organization::findOrFail($orgId);
@@ -33,46 +52,97 @@ class OrgMembershipController extends Controller
                 ->orWhere('id', $orgId)
                 ->pluck('id');
 
-            $members = OrgMembership::whereIn('org_id', $treeOrgIds)
+            // ── FIX 1 ────────────────────────────────────────────────────────
+            // For root org queries, get ALL memberships but then deduplicate
+            // per user — keeping the BRANCH membership over the root membership.
+            // This prevents Flutter from picking up the root row (branch_manager)
+            // instead of the actual branch assignment.
+            $allMemberships = OrgMembership::whereIn('org_id', $treeOrgIds)
                 ->with(['user.actor', 'orgRole', 'organization'])
                 ->when($request->get('status'),    fn($q, $v) => $q->where('status', $v))
                 ->when($request->get('branch_id'), fn($q, $v) => $q->where('org_id', $v))
                 ->orderByDesc('level')
-                ->paginate((int) $request->get('per_page', 50));
-        } else {
-            $members = OrgMembership::where('org_id', $orgId)
-                ->with(['user.actor', 'orgRole', 'organization'])
-                ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
-                ->orderByDesc('level')
-                ->paginate((int) $request->get('per_page', 50));
+                ->get();
+
+            // Deduplicate: prefer branch membership (org_id != rootOrgId) over root
+            $deduped = $allMemberships
+                ->groupBy('user_id')
+                ->map(function ($userMemberships) use ($orgId) {
+                    // Try to find a non-root membership first
+                    $branch = $userMemberships->first(fn($m) => $m->org_id !== $orgId);
+                    return $branch ?? $userMemberships->first();
+                })
+                ->values();
+
+            // Enrich each membership with pm_officers branch data
+            $enriched = $deduped->map(fn($m) => $this->enrich($m, $orgId));
+
+            // Re-paginate manually to keep the same response shape
+            $page    = (int) $request->get('page', 1);
+            $perPage = (int) $request->get('per_page', 50);
+            $slice   = $enriched->forPage($page, $perPage)->values();
+
+            return response()->json([
+                'data'          => $slice,
+                'current_page'  => $page,
+                'per_page'      => $perPage,
+                'total'         => $enriched->count(),
+                'last_page'     => (int) ceil($enriched->count() / $perPage),
+            ]);
+            // ─────────────────────────────────────────────────────────────────
         }
+
+        // Branch-scoped query — unchanged logic, just add enrichment
+        $members = OrgMembership::where('org_id', $orgId)
+            ->with(['user.actor', 'orgRole', 'organization'])
+            ->when($request->get('status'), fn($q, $v) => $q->where('status', $v))
+            ->orderByDesc('level')
+            ->paginate((int) $request->get('per_page', 50));
+
+        $members->getCollection()->transform(
+            fn($m) => $this->enrich($m, $org->root_org_id ?? $orgId)
+        );
 
         return response()->json($members);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // GET /api/v1/orgs/{orgId}/members/{userId}
-    // ────────────────────────────────────────────────────────────
+    // ── GET /api/v1/orgs/{orgId}/members/{userId} ────────────────────────────
     public function show(Request $request, string $orgId, string $userId): JsonResponse
     {
-        $membership = OrgMembership::where('org_id', $orgId)
-            ->where('user_id', $userId)
-            ->with(['user.actor', 'orgRole', 'organization'])
-            ->firstOrFail();
+        // ── FIX 2 ────────────────────────────────────────────────────────────
+        // Resolve the root org id regardless of whether orgId is root or branch
+        $org       = Organization::findOrFail($orgId);
+        $rootOrgId = $org->root_org_id ?? $orgId;
 
-        return response()->json($membership);
+        // Look up pm_officers to find the officer's CURRENT branch
+        $pmOfficer = PmOfficer::where('platform_user_id', $userId)
+            ->where('org_id', $rootOrgId)
+            ->first();
+
+        // Prefer the branch membership; fall back to whatever org was requested
+        $targetOrgId = $pmOfficer?->branch_id ?? $orgId;
+
+        // Try to find membership for the target org; fall back to any active one
+        $membership = OrgMembership::where('user_id', $userId)
+            ->where('org_id', $targetOrgId)
+            ->where('status', 'active')
+            ->with(['user.actor', 'orgRole', 'organization'])
+            ->first();
+
+        if (! $membership) {
+            // Fallback — original behaviour
+            $membership = OrgMembership::where('org_id', $orgId)
+                ->where('user_id', $userId)
+                ->with(['user.actor', 'orgRole', 'organization'])
+                ->firstOrFail();
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        return response()->json($this->enrich($membership, $rootOrgId));
     }
 
-    // ────────────────────────────────────────────────────────────
-    // POST /api/v1/orgs/{orgId}/members/invite
-    //
-    // FIX: The $request->validate([...]) block that was previously
-    // placed AFTER inviteMember() and mail sending has been removed.
-    // It was dead code (ran after the work was done) and used 'role_id'
-    // instead of 'org_role_id', causing the 422 "role field is required"
-    // error seen on the client. Validation is handled by InviteMemberRequest
-    // (the FormRequest) which runs automatically before this method body.
-    // ────────────────────────────────────────────────────────────
+    // ── POST /api/v1/orgs/{orgId}/members/invite ─────────────────────────────
+    // UNCHANGED
     public function invite(InviteMemberRequest $request, string $orgId): JsonResponse
     {
         $invitation = $this->orgService->inviteMember(
@@ -83,10 +153,6 @@ class OrgMembershipController extends Controller
             $request->user()->id
         );
 
-        // ── Optional: immediate account creation (app_password flow) ──
-        // If the admin provides app_password, the officer account is
-        // created and activated immediately without requiring the user
-        // to accept via the invitation token.
         if ($request->filled('app_password') && $request->filled('email')) {
             try {
                 $authService    = app(\Modules\Platform\Contracts\Services\AuthServiceInterface::class);
@@ -104,18 +170,17 @@ class OrgMembershipController extends Controller
                     ]);
                 }
 
-                // Auto-accept the invitation for this user
-                OrgMembership::create([
-                    'user_id'     => $existingUser->id,
-                    'org_id'      => $orgId,
-                    'org_role_id' => $request->org_role_id,
-                    'level'       => $request->level ?? 0,
-                    'invited_by'  => $request->user()->id,
-                    'status'      => 'active',
-                    'joined_at'   => now(),
-                ]);
+                OrgMembership::firstOrCreate(
+                    ['user_id' => $existingUser->id, 'org_id' => $orgId],
+                    [
+                        'org_role_id' => $request->org_role_id,
+                        'level'       => $request->level ?? 0,
+                        'invited_by'  => $request->user()->id,
+                        'status'      => 'active',
+                        'joined_at'   => now(),
+                    ]
+                );
 
-                // Create pm_officers record
                 $rootOrgId = Organization::findOrFail($orgId)->root_org_id ?? $orgId;
                 $officerService->createFromAdminOrg(
                     orgId:          $rootOrgId,
@@ -134,7 +199,6 @@ class OrgMembershipController extends Controller
             }
         }
 
-        // ── Send invitation email ──────────────────────────────
         try {
             $org         = Organization::find($orgId);
             $inviterName = $request->user()->name
@@ -160,22 +224,12 @@ class OrgMembershipController extends Controller
         ], 201);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // GET /api/v1/orgs/{orgId}/invitations
-    //
-    // Returns all invitations for the org tree so admins can see
-    // and re-share tokens without needing to re-invite.
-    //
-    // Query params:
-    //   status   = pending | accepted | expired | cancelled | all
-    //              (default: pending)
-    //   per_page (default: 50)
-    // ────────────────────────────────────────────────────────────
+    // ── GET /api/v1/orgs/{orgId}/invitations ─────────────────────────────────
+    // UNCHANGED
     public function invitations(Request $request, string $orgId): JsonResponse
     {
         $org = Organization::findOrFail($orgId);
 
-        // Scope to entire tree (root + all branches)
         $orgIds = Organization::where('root_org_id', $org->root_org_id ?? $orgId)
             ->orWhere('id', $orgId)
             ->pluck('id');
@@ -191,9 +245,8 @@ class OrgMembershipController extends Controller
         return response()->json($invitations);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // DELETE /api/v1/orgs/{orgId}/invitations/{invitationId}/cancel
-    // ────────────────────────────────────────────────────────────
+    // ── DELETE /api/v1/orgs/{orgId}/invitations/{invitationId}/cancel ─────────
+    // UNCHANGED
     public function cancelInvitation(
         Request $request,
         string $orgId,
@@ -208,12 +261,8 @@ class OrgMembershipController extends Controller
         return response()->json(['message' => 'Invitation cancelled.']);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // POST /api/v1/orgs/{orgId}/members/assign
-    //
-    // Directly assign an existing root org member to a branch.
-    // Reactivates suspended memberships instead of creating duplicates.
-    // ────────────────────────────────────────────────────────────
+    // ── POST /api/v1/orgs/{orgId}/members/assign ─────────────────────────────
+    // UNCHANGED
     public function assign(Request $request, string $orgId): JsonResponse
     {
         $request->validate([
@@ -242,7 +291,6 @@ class OrgMembershipController extends Controller
             ], 422);
         }
 
-        // Check for any existing membership (any role, any status)
         $existing = OrgMembership::where('user_id', $request->user_id)
             ->where('org_id', $orgId)
             ->first();
@@ -253,7 +301,6 @@ class OrgMembershipController extends Controller
                     'message' => 'User is already an active member of this branch.',
                 ], 422);
             }
-            // Reactivate suspended membership instead of creating a duplicate
             $existing->update([
                 'org_role_id' => $request->org_role_id,
                 'level'       => $request->level ?? $rootMembership->level,
@@ -284,9 +331,8 @@ class OrgMembershipController extends Controller
         ], 201);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // POST /api/v1/orgs/invitations/{token}/accept
-    // ────────────────────────────────────────────────────────────
+    // ── POST /api/v1/orgs/invitations/{token}/accept ──────────────────────────
+    // UNCHANGED
     public function accept(Request $request, string $token): JsonResponse
     {
         $membership = $this->orgService->acceptInvitation(
@@ -300,9 +346,8 @@ class OrgMembershipController extends Controller
         ]);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // DELETE /api/v1/orgs/{orgId}/members/{userId}
-    // ────────────────────────────────────────────────────────────
+    // ── DELETE /api/v1/orgs/{orgId}/members/{userId} ──────────────────────────
+    // UNCHANGED
     public function remove(Request $request, string $orgId, string $userId): JsonResponse
     {
         $this->orgService->removeMember($orgId, $userId, $request->user()->id);
@@ -310,9 +355,8 @@ class OrgMembershipController extends Controller
         return response()->json(['message' => 'Member removed.']);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // PATCH /api/v1/orgs/{orgId}/members/{userId}
-    // ────────────────────────────────────────────────────────────
+    // ── PATCH /api/v1/orgs/{orgId}/members/{userId} ───────────────────────────
+    // UNCHANGED
     public function update(UpdateMemberRequest $request, string $orgId, string $userId): JsonResponse
     {
         $membership = $this->orgService->updateMember(
@@ -326,5 +370,72 @@ class OrgMembershipController extends Controller
             'message'    => 'Member updated.',
             'membership' => $membership,
         ]);
+    }
+
+    // ── Private: enrich a membership with pm_officers branch data ────────────
+    //
+    // Adds branch_id, branch_name, and the correct role from the officer's
+    // CURRENT branch membership — not from the root org membership row.
+    //
+    // This is the single source of truth fix: pm_officers.branch_id always
+    // reflects the current branch after a transfer. Without this enrichment,
+    // Flutter reads org_id (root org) and org_role (branch_manager) from the
+    // root membership row, ignoring the actual branch assignment entirely.
+    private function enrich(OrgMembership $membership, string $rootOrgId): array
+    {
+        $user  = $membership->user;
+        $actor = $user?->actor;
+
+        // Resolve pm_officer for this user
+        $pmOfficer = PmOfficer::where('platform_user_id', $user?->id)
+            ->where('org_id', $rootOrgId)
+            ->first();
+
+        // Current branch from pm_officers (null for non-officers / HQ admins)
+        $branchId   = $pmOfficer?->branch_id;
+        $branchName = null;
+
+        // Resolve the branch membership to get the correct role
+        $branchMembership = null;
+        if ($branchId) {
+            $branch     = Organization::find($branchId);
+            $branchName = $branch?->name;
+
+            // Get the membership for the branch (not root) to get the real role
+            $branchMembership = OrgMembership::where('user_id', $user?->id)
+                ->where('org_id', $branchId)
+                ->where('status', 'active')
+                ->with('orgRole')
+                ->first();
+        }
+
+        // Use branch role if found, otherwise fall back to the passed membership
+        $effectiveMembership = $branchMembership ?? $membership;
+        $role                = $effectiveMembership->orgRole ?? $membership->orgRole;
+
+        return [
+            'user_id'        => $user?->id ?? '',
+            'actor_id'       => $user?->actor_id ?? $actor?->id ?? '',
+            'name'           => $actor?->display_name ?? $user?->username ?? '',
+            'username'       => $user?->username ?? '',
+            'email'          => $user?->email ?? '',
+            'phone'          => null,
+            'user_status'    => $user?->status ?? 'active',
+            // org_id = membership's org (root or branch, as originally stored)
+            'org_id'         => $membership->org_id,
+            'org_name'       => $membership->organization?->name ?? '',
+            // branch_id/branch_name = current branch from pm_officers ← THE FIX
+            'branch_id'      => $branchId ?? $membership->org_id,
+            'branch_name'    => $branchName ?? $membership->organization?->name ?? '',
+            'org_role_id'    => $role?->id ?? '',
+            'org_role_name'  => $role?->name ?? '',
+            'role'           => [
+                'id'   => $role?->id ?? '',
+                'name' => $role?->name ?? '',
+            ],
+            'level'          => $effectiveMembership->level ?? $membership->level ?? 0,
+            'status'         => $effectiveMembership->status ?? $membership->status,
+            'created_at'     => $membership->created_at?->toISOString(),
+        ];
     }
 }

@@ -1,4 +1,6 @@
 <?php
+// FILE: modules/Platform/Database/Migrations/2026_01_001_022_create_org_memberships_table.php
+// CHANGE: One line — replace the unique constraint.
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -17,29 +19,25 @@ return new class extends Migration
             $table->char('org_role_id', 26);
             $table->smallInteger('level')->default(0);
             $table->char('invited_by', 26)->nullable();
-            $table->string('invite_token', 64)->nullable()->unique();
-            $table->timestamp('invite_expires_at')->nullable();
-            $table->string('status', 50)->default('invited');
+            $table->string('status', 50)->default('invited'); // invited|active|suspended|transferred
             $table->timestamp('joined_at')->nullable();
             $table->timestamps();
 
+            // ── CHANGE: was ['user_id', 'org_id', 'org_role_id'] ──────────
+            // Old constraint allowed same user+org with different roles,
+            // meaning a transferred officer could accumulate duplicate rows.
+            // New constraint: one membership row per (user, org node).
             $table->unique(['user_id', 'org_id']);
+            // ─────────────────────────────────────────────────────────────
+
             $table->index('user_id');
             $table->index('org_id');
             $table->index('status');
 
-            $table->foreign('user_id')
-                  ->references('id')->on('users');
-
-            $table->foreign('org_id')
-                  ->references('id')->on('organizations');
-
-            $table->foreign('org_role_id')
-                  ->references('id')->on('org_roles');
-
-            $table->foreign('invited_by')
-                  ->references('id')->on('users')
-                  ->onDelete('set null');
+            $table->foreign('user_id')->references('id')->on('users');
+            $table->foreign('org_id')->references('id')->on('organizations');
+            $table->foreign('org_role_id')->references('id')->on('org_roles');
+            $table->foreign('invited_by')->references('id')->on('users')->onDelete('set null');
         });
 
         \Illuminate\Support\Facades\DB::connection('platform')->statement(

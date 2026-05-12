@@ -90,39 +90,59 @@ class OfficerController extends Controller
             $result = DB::connection('platform')->transaction(function () use (
                 $request, $rootOrgId, $branchId, $level
             ) {
-                $username = $this->generateUsername($request->full_name);
+                // ── Step 1: Find or create the platform user ──────────────────
+                // auth->register() may silently return an existing user in some
+                // implementations. Guard here so we never double-register.
+                $user = User::where('email', $request->email)->first();
 
-                $user = $this->auth->register([
-                    'name'     => $request->full_name,
-                    'username' => $username,
-                    'email'    => $request->email,
-                    'password' => $request->password,
-                ]);
+                if (!$user) {
+                    $username = $this->generateUsername($request->full_name);
+                    $user = $this->auth->register([
+                        'name'     => $request->full_name,
+                        'username' => $username,
+                        'email'    => $request->email,
+                        'password' => $request->password,
+                    ]);
+                }
 
-                $rootMembership = OrgMembership::create([
-                    'user_id'     => $user->id,
-                    'org_id'      => $rootOrgId,
-                    'org_role_id' => $request->org_role_id,
-                    'level'       => $level,
-                    'invited_by'  => $request->user()->id,
-                    'status'      => 'active',
-                    'joined_at'   => now(),
-                ]);
-
-                $activeMembership = $rootMembership;
-                if ($branchId) {
-                    $branchMembership = OrgMembership::create([
-                        'user_id'     => $user->id,
-                        'org_id'      => $branchId,
+                // ── Step 2: Ensure root org membership exists (idempotent) ────
+                // firstOrCreate so retries and duplicate calls never throw the
+                // unique constraint on (user_id, org_id).
+                $rootMembership = OrgMembership::firstOrCreate(
+                    [
+                        'user_id' => $user->id,
+                        'org_id'  => $rootOrgId,
+                    ],
+                    [
                         'org_role_id' => $request->org_role_id,
                         'level'       => $level,
                         'invited_by'  => $request->user()->id,
                         'status'      => 'active',
                         'joined_at'   => now(),
-                    ]);
+                    ]
+                );
+
+                $activeMembership = $rootMembership;
+
+                // ── Step 3: Ensure branch membership exists (idempotent) ──────
+                if ($branchId) {
+                    $branchMembership = OrgMembership::firstOrCreate(
+                        [
+                            'user_id' => $user->id,
+                            'org_id'  => $branchId,
+                        ],
+                        [
+                            'org_role_id' => $request->org_role_id,
+                            'level'       => $level,
+                            'invited_by'  => $request->user()->id,
+                            'status'      => 'active',
+                            'joined_at'   => now(),
+                        ]
+                    );
                     $activeMembership = $branchMembership;
 
-                    // ── NEW: create pm_officer record with correct branch ──────
+                    // ── Step 4: Ensure pm_officer record exists (idempotent) ──
+                    // createFromAdminOrg() is already idempotent internally.
                     $this->officerService->createFromAdminOrg(
                         orgId:          $rootOrgId,
                         branchId:       $branchId,
@@ -133,7 +153,6 @@ class OfficerController extends Controller
                         phone:          $request->phone,
                         source:         'admin',
                     );
-                    // ─────────────────────────────────────────────────────────
                 }
 
                 return $activeMembership->load(['user.actor', 'orgRole', 'organization']);
@@ -250,6 +269,16 @@ class OfficerController extends Controller
         $role  = $membership->orgRole;
         $org   = $membership->organization;
 
+        // ── ADD: resolve actual branch from pm_officers ───────────
+        $pmOfficer = \Modules\PharmaMarketing\Models\PmOfficer
+            ::where('platform_user_id', $user?->id)
+            ->where('org_id', $org?->root_org_id ?? $membership->org_id)
+            ->first();
+
+        $branchId   = $pmOfficer?->branch_id ?? $membership->org_id;
+        $branch     = \Modules\Platform\Models\Organization::find($branchId);
+        // ─────────────────────────────────────────────────────────
+
         return [
             'user_id'       => $user?->id ?? '',
             'actor_id'      => $user?->actor_id ?? '',
@@ -259,6 +288,8 @@ class OfficerController extends Controller
             'user_status'   => $user?->status ?? 'active',
             'org_id'        => $membership->org_id,
             'org_name'      => $org?->name ?? '',
+            'branch_id'     => $branchId,          // ← ADD
+            'branch_name'   => $branch?->name ?? '',// ← ADD
             'org_role_id'   => $role?->id ?? '',
             'org_role_name' => $role?->name ?? '',
             'level'         => $membership->level,

@@ -108,10 +108,41 @@ class OfficerService
             $newOrgRoleId,
             $transferredBy,
         ) {
-            // 1. Load officer — fails loudly if not found
+            // 1. Load officer — self-heal if pm_officers record is missing.
+            // Officers created before the pm_officers feature was introduced
+            // won't have a record. Create one on the fly so the transfer proceeds.
             $officer = PmOfficer::where('platform_user_id', $platformUserId)
                 ->where('org_id', $rootOrgId)
-                ->firstOrFail();
+                ->first();
+
+            if (!$officer) {
+                // Resolve current branch from org_memberships (first non-root active)
+                $currentBranch = DB::connection('platform')
+                    ->table('org_memberships')
+                    ->where('user_id', $platformUserId)
+                    ->where('org_id', '!=', $rootOrgId)
+                    ->where('status', 'active')
+                    ->orderByDesc('joined_at')
+                    ->first();
+
+                $currentBranchId = $currentBranch?->org_id ?? $rootOrgId;
+
+                $platformUser = DB::connection('platform')
+                    ->table('users')
+                    ->where('id', $platformUserId)
+                    ->first();
+
+                $officer = PmOfficer::create([
+                    'org_id'              => $rootOrgId,
+                    'branch_id'           => $currentBranchId,
+                    'platform_user_id'    => $platformUserId,
+                    'actor_id'            => $platformUser?->actor_id,
+                    'registration_source' => 'admin',
+                    'name'                => $platformUser?->username ?? $platformUserId,
+                    'email'               => $platformUser?->email,
+                    'status'              => 'active',
+                ]);
+            }
 
             // No-op guard
             if ($officer->branch_id === $newBranchId) {

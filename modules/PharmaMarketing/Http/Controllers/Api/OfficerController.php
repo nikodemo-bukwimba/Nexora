@@ -265,6 +265,7 @@ class OfficerController extends Controller
             'phone'    => $officer->phone,
             'status'   => $user?->status ?? 'active',
             'actor_id' => $actor?->id ?? $officer->actor_id,
+            
         ];
         $data['role']        = $membership ? [
             'id'   => $membership->org_role_id,
@@ -274,6 +275,8 @@ class OfficerController extends Controller
         $data['level']       = $membership?->level ?? 0;
         $data['status']      = $membership?->status ?? $officer->status;
         $data['org_name']    = null; // filled if needed
+        $data['branch_id']   = $officer->branch_id;
+        $data['branch_name'] = \Modules\Platform\Models\Organization::find($officer->branch_id)?->name;
 
         return $data;
     }

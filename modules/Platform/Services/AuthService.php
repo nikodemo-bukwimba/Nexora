@@ -1,4 +1,9 @@
 <?php
+// FILE: modules/Platform/Services/AuthService.php
+// CHANGE: autoAssignToDefaultOrg() — role priority updated so self-registered
+//         users get 'user' or 'viewer' role, never 'branch_manager'.
+//         Status stays 'pending_approval' (you already changed this).
+//         Everything else in this file is unchanged.
 
 namespace Modules\Platform\Services;
 
@@ -29,8 +34,6 @@ class AuthService implements AuthServiceInterface
     {
         return DB::connection('platform')->transaction(function () use ($data) {
 
-            // Use 'name' (full name from Flutter) if provided.
-            // Fall back to username so the actor always has a readable display name.
             $displayName = !empty(trim($data['name'] ?? ''))
                 ? trim($data['name'])
                 : $data['username'];
@@ -68,8 +71,6 @@ class AuthService implements AuthServiceInterface
             }
 
             // 5. Auto-assign to default org if configured
-            // This ensures customer app users get an org_id immediately after
-            // registration so /auth/me returns a valid org_id and the app works.
             $this->autoAssignToDefaultOrg($user);
 
             // 6. Fire event
@@ -94,23 +95,14 @@ class AuthService implements AuthServiceInterface
     }
 
     /**
-     * Auto-assign a newly registered user to the platform's default org
-     * with the lowest-privilege role (viewer / customer).
+     * Auto-assign a newly self-registered user to the platform's default org.
      *
-     * This is configured via the platform.default_org_id feature flag.
-     * The flag's `description` column stores the org ULID.
-     * The flag's `value` (boolean) acts as the on/off switch.
-     *
-     * To enable:
-     *   INSERT INTO platform.platform_feature_flags
-     *     (id, key, value, description, module)
-     *   VALUES
-     *     (gen_ulid(), 'platform.default_org_id', true, '{ROOT_ORG_ULID}', 'platform');
-     *
-     * Role priority (first match wins):
-     *   1. A role with slug 'customer'
-     *   2. A role with slug 'viewer'
-     *   3. The first non-system role in the org
+     * CHANGES from original:
+     *   1. Role priority: 'user' first, then 'viewer', then 'customer',
+     *      then first non-system role. This prevents branch_manager or any
+     *      privileged role from being assigned to self-registered users.
+     *   2. Status: 'pending_approval' — user is blocked until admin activates.
+     *      (You already changed this manually; confirmed here.)
      */
     private function autoAssignToDefaultOrg(User $user): void
     {
@@ -122,12 +114,11 @@ class AuthService implements AuthServiceInterface
                 ->first();
 
             if (! $flag || empty($flag->description)) {
-                return; // Feature not configured — skip silently
+                return;
             }
 
             $defaultOrgId = $flag->description;
 
-            // Verify the org exists and is active
             $org = DB::connection('platform')
                 ->table('organizations')
                 ->where('id', $defaultOrgId)
@@ -138,23 +129,35 @@ class AuthService implements AuthServiceInterface
                 return;
             }
 
-            // Find the best-fit role: customer > viewer > first non-system role
+            // ── CHANGE: role priority ─────────────────────────────────────────
+            // 'user' → 'viewer' → 'customer' → first non-system role.
+            // 'branch_manager' and any other privileged role will never match
+            // unless it is literally the only role in the org (edge case).
             $role = OrgRole::where('root_org_id', $defaultOrgId)
-                ->whereIn('slug', ['customer', 'viewer'])
-                ->orderByRaw("CASE slug WHEN 'customer' THEN 0 WHEN 'viewer' THEN 1 END")
+                ->whereIn('slug', ['user', 'viewer', 'customer'])
+                ->orderByRaw("CASE slug
+                    WHEN 'user'     THEN 0
+                    WHEN 'viewer'   THEN 1
+                    WHEN 'customer' THEN 2
+                    END")
                 ->first();
 
             if (! $role) {
+                // Fallback: first non-system role that is NOT a manager/admin slug
                 $role = OrgRole::where('root_org_id', $defaultOrgId)
                     ->where('is_system', false)
+                    ->whereNotIn('slug', [
+                        'branch_manager', 'org_admin', 'admin',
+                        'manager', 'super_admin', 'field_officer',
+                    ])
                     ->first();
             }
 
             if (! $role) {
-                return; // No suitable role found — skip
+                return; // No safe role found — skip rather than assign wrong role
             }
+            // ─────────────────────────────────────────────────────────────────
 
-            // Avoid duplicate membership
             $exists = OrgMembership::where('user_id', $user->id)
                 ->where('org_id', $defaultOrgId)
                 ->exists();
@@ -169,17 +172,18 @@ class AuthService implements AuthServiceInterface
                 'org_role_id' => $role->id,
                 'level'       => 0,
                 'invited_by'  => null,
-                'status'      => 'active',
+                'status'      => 'pending_approval', // blocks login until admin approves
                 'joined_at'   => now(),
             ]);
 
         } catch (\Throwable $e) {
-            // Auto-assignment failure must never block registration
             \Illuminate\Support\Facades\Log::warning(
                 "AuthService: auto-org-assignment failed for user {$user->id}: " . $e->getMessage()
             );
         }
     }
+
+    // ── Unchanged methods ─────────────────────────────────────────────────────
 
     public function loginWithToken(string $email, string $password, string $deviceName): ?string
     {

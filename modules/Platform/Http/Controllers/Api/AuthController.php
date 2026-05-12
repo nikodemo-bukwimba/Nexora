@@ -80,13 +80,34 @@ class AuthController extends Controller
         $user  = $request->user()->load('actor');
         $orgId = $request->query('org_id');
 
-        // ── Resolve platform membership (unchanged logic) ─────────────
-        $membership = $user->orgMemberships()
-            ->with(['orgRole.permissions', 'organization'])
-            ->where('status', 'active')
-            ->when($orgId, fn($q) => $q->where('org_id', $orgId))
-            ->orderByDesc('level')
-            ->first();
+        // ── Resolve platform membership ───────────────────────────────
+        //
+        // CHANGE: When org_id is not specified, we prefer the BRANCH membership
+        // over the root membership. Both can have level=0, so orderByDesc('level')
+        // alone is a coin toss — PostgreSQL was returning root first, causing
+        // the officer app to always show root org context.
+        //
+        // Strategy:
+        //   1. If org_id is explicitly passed → use that membership (unchanged)
+        //   2. Otherwise → load all active memberships, prefer branch over root
+        if ($orgId) {
+            $membership = $user->orgMemberships()
+                ->with(['orgRole.permissions', 'organization'])
+                ->where('status', 'active')
+                ->where('org_id', $orgId)
+                ->first();
+        } else {
+            $allMemberships = $user->orgMemberships()
+                ->with(['orgRole.permissions', 'organization'])
+                ->where('status', 'active')
+                ->get();
+
+            // Prefer branch membership (type != root) over root membership.
+            // Falls back to root if user only has root membership (HQ admin).
+            $membership = $allMemberships->first(
+                fn($m) => $m->organization?->type !== 'root'
+            ) ?? $allMemberships->first();
+        }
 
         $orgRole     = $membership?->orgRole;
         $org         = $membership?->organization;
