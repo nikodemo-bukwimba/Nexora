@@ -166,13 +166,15 @@ class AuthService implements AuthServiceInterface
                 return;
             }
 
+            $isCustomerRole = in_array($role->slug, ['customer', 'user', 'viewer']);
+
             OrgMembership::create([
                 'user_id'     => $user->id,
                 'org_id'      => $defaultOrgId,
                 'org_role_id' => $role->id,
                 'level'       => 0,
                 'invited_by'  => null,
-                'status'      => 'pending_approval', // blocks login until admin approves
+                'status'      => $isCustomerRole ? 'active' : 'pending_approval',
                 'joined_at'   => now(),
             ]);
 

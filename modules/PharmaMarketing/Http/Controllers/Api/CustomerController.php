@@ -1,4 +1,11 @@
 <?php
+// FILE: modules/PharmaMarketing/Http/Controllers/Api/CustomerController.php
+// CHANGES:
+//   1. store() — customer_type already validated ✅, no change needed
+//   2. update() — was using $request->all() with no validation, passing
+//      unknown fields. Now validates explicitly and passes contact fields
+//      (contact_name, contact_phone, contact_role) through to CustomerService.
+//   Everything else unchanged.
 
 namespace Modules\PharmaMarketing\Http\Controllers\Api;
 
@@ -14,7 +21,13 @@ class CustomerController extends Controller
     /** GET /api/v1/pharma/orgs/{orgId}/customers */
     public function index(Request $request, string $orgId): JsonResponse
     {
-        return response()->json($this->customers->list($orgId, $request->only(['customer_type', 'status', 'category', 'tier', 'officer_id', 'search']), (int) $request->get('per_page', 25)));
+        return response()->json(
+            $this->customers->list(
+                $orgId,
+                $request->only(['customer_type', 'status', 'category', 'tier', 'officer_id', 'search', 'branch_id']),
+                (int) $request->get('per_page', 25)
+            )
+        );
     }
 
     /** POST /api/v1/pharma/orgs/{orgId}/customers */
@@ -26,13 +39,16 @@ class CustomerController extends Controller
             'app_password'  => ['sometimes', 'nullable', 'string', 'min:8', 'confirmed'],
         ]);
 
-        $customer = $this->customers->create($orgId, $request->except(['app_password', 'app_password_confirmation']));
+        $customer = $this->customers->create(
+            $orgId,
+            $request->except(['app_password', 'app_password_confirmation'])
+        );
 
         // If admin set a password, auto-register the customer on the platform
         if ($request->filled('app_password') && $request->filled('email')) {
             try {
                 $authService = app(\Modules\Platform\Contracts\Services\AuthServiceInterface::class);
-                $username = \Illuminate\Support\Str::slug($request->email) . '_' . substr(uniqid(), -4);
+                $username    = \Illuminate\Support\Str::slug($request->email) . '_' . substr(uniqid(), -4);
 
                 $user = $authService->register([
                     'name'     => $request->name,
@@ -41,7 +57,6 @@ class CustomerController extends Controller
                     'password' => $request->app_password,
                 ]);
 
-                // Link to customer record
                 $customer->update([
                     'platform_user_id'    => $user->id,
                     'registration_source' => 'admin',
@@ -51,7 +66,10 @@ class CustomerController extends Controller
             }
         }
 
-        return response()->json(['message' => 'Customer created.', 'customer' => $customer->fresh(['contacts'])], 201);
+        return response()->json([
+            'message'  => 'Customer created.',
+            'customer' => $customer->fresh(['contacts']),
+        ], 201);
     }
 
     /** GET /api/v1/pharma/customers/{id} */
@@ -60,11 +78,44 @@ class CustomerController extends Controller
         return response()->json($this->customers->get($id));
     }
 
-    /** PATCH /api/v1/pharma/customers/{id} */
+    /**
+     * PATCH /api/v1/pharma/customers/{id}
+     *
+     * CHANGE: Added explicit validation + contact fields.
+     * Previously used $request->all() with no validation — unknown columns
+     * were silently dropped by Eloquent but contact fields were also dropped.
+     * Now contact_name, contact_phone, contact_role are explicitly accepted
+     * and passed to CustomerService::update() which upserts the primary contact.
+     */
     public function update(Request $request, string $id): JsonResponse
     {
-        $customer = $this->customers->update($id, $request->all());
-        return response()->json(['message' => 'Customer updated.', 'customer' => $customer]);
+        $request->validate([
+            'name'          => ['sometimes', 'string', 'min:2'],
+            'customer_type' => ['sometimes', 'string', 'in:b2b,b2c'],
+            'category'      => ['sometimes', 'nullable', 'string'],
+            'tier'          => ['sometimes', 'nullable', 'string'],
+            'status'        => ['sometimes', 'string', 'in:active,suspended,inactive'],
+            'phone'         => ['sometimes', 'nullable', 'string'],
+            'alt_phone'     => ['sometimes', 'nullable', 'string'],
+            'email'         => ['sometimes', 'nullable', 'email'],
+            'address'       => ['sometimes', 'nullable', 'string'],
+            'city'          => ['sometimes', 'nullable', 'string'],
+            'county'        => ['sometimes', 'nullable', 'string'],
+            'country'       => ['sometimes', 'nullable', 'string'],
+            'notes'         => ['sometimes', 'nullable', 'string'],
+            'credit_limit'  => ['sometimes', 'nullable', 'numeric'],
+            // ── Contact person fields (upserted into pm_customer_contacts) ──
+            'contact_name'  => ['sometimes', 'nullable', 'string'],
+            'contact_phone' => ['sometimes', 'nullable', 'string'],
+            'contact_role'  => ['sometimes', 'nullable', 'string'],
+        ]);
+
+        $customer = $this->customers->update($id, $request->validated());
+
+        return response()->json([
+            'message'  => 'Customer updated.',
+            'customer' => $customer,
+        ]);
     }
 
     /** POST /api/v1/pharma/customers/{id}/assign */

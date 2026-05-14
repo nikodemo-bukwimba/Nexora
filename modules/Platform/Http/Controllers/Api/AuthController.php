@@ -1,8 +1,22 @@
 <?php
 // FILE: modules/Platform/Http/Controllers/Api/AuthController.php
-// CHANGE: me() now resolves pm_officers.branch_id and returns
-//         branch_id + branch_name in the user payload.
-//         Everything else (register, login, logout) is unchanged.
+// PATH: modules/Platform/Http/Controllers/Api/AuthController.php
+//
+// CHANGE: me() — after resolving org membership, resolve pm_customers record.
+//
+// HOW THE CUSTOMER LINKING WORKS:
+//
+//   Case A — Admin pre-created the customer with an email, customer self-registers:
+//     linkPlatformUser() matches by email → links platform_user_id → returns customer
+//
+//   Case B — Customer self-registered first (no pre-existing record):
+//     createFromRegistration() creates a new pm_customers record for them
+//
+//   Case C — Officer/admin user (no customer record expected):
+//     pm_customers lookup returns null → customer_id omitted from response
+//
+// The customer app reads customer_id from /auth/me and uses it to scope API calls.
+// Without this, every self-registered customer is disconnected from admin-created records.
 
 namespace Modules\Platform\Http\Controllers\Api;
 
@@ -14,17 +28,19 @@ use Modules\Platform\Http\Requests\Auth\ApiLoginRequest;
 use Modules\Platform\Http\Requests\Auth\ApiRegisterRequest;
 use Modules\Platform\Models\User;
 use Modules\Platform\Models\Organization;
-// ── NEW ──
+// ── Existing import ───────────────────────────────────────────────────────────
 use Modules\PharmaMarketing\Models\PmOfficer;
-// ─────────
+// ── NEW ───────────────────────────────────────────────────────────────────────
+use Modules\PharmaMarketing\Models\Customer;
+// ─────────────────────────────────────────────────────────────────────────────
 
 class AuthController extends Controller
 {
     public function __construct(
-        protected AuthServiceInterface $auth
+        protected AuthServiceInterface $auth,
     ) {}
 
-    // ── Unchanged ─────────────────────────────────────────────────────
+    // ── Unchanged ─────────────────────────────────────────────────────────────
 
     public function register(ApiRegisterRequest $request): JsonResponse
     {
@@ -64,32 +80,14 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out.']);
     }
 
-    // ── CHANGED: me() ────────────────────────────────────────────────
+    // ── CHANGED: me() ─────────────────────────────────────────────────────────
 
-    /**
-     * GET /api/v1/auth/me
-     *
-     * Returns the authenticated user scoped to their org membership.
-     *
-     * NEW: Also resolves the officer's CURRENT branch from pm_officers
-     * and returns branch_id + branch_name so Flutter always has the
-     * up-to-date branch after a transfer.
-     */
     public function me(Request $request): JsonResponse
     {
         $user  = $request->user()->load('actor');
         $orgId = $request->query('org_id');
 
-        // ── Resolve platform membership ───────────────────────────────
-        //
-        // CHANGE: When org_id is not specified, we prefer the BRANCH membership
-        // over the root membership. Both can have level=0, so orderByDesc('level')
-        // alone is a coin toss — PostgreSQL was returning root first, causing
-        // the officer app to always show root org context.
-        //
-        // Strategy:
-        //   1. If org_id is explicitly passed → use that membership (unchanged)
-        //   2. Otherwise → load all active memberships, prefer branch over root
+        // ── Resolve platform membership ────────────────────────────────────
         if ($orgId) {
             $membership = $user->orgMemberships()
                 ->with(['orgRole.permissions', 'organization'])
@@ -102,8 +100,7 @@ class AuthController extends Controller
                 ->where('status', 'active')
                 ->get();
 
-            // Prefer branch membership (type != root) over root membership.
-            // Falls back to root if user only has root membership (HQ admin).
+            // Prefer branch membership over root
             $membership = $allMemberships->first(
                 fn($m) => $m->organization?->type !== 'root'
             ) ?? $allMemberships->first();
@@ -125,14 +122,7 @@ class AuthController extends Controller
         $resolvedOrgId = $membership?->org_id;
         $rootOrgId     = $org?->root_org_id ?? $resolvedOrgId;
 
-        // ── NEW: Resolve current branch from pm_officers ──────────────
-        //
-        // We look up pm_officers using the ROOT org (not the branch),
-        // because pm_officers.org_id is always the root org.
-        // pm_officers.branch_id is the officer's CURRENT branch —
-        // it is updated atomically by OfficerService::transferOfficer().
-        // This is the single source of truth for branch assignment.
-        //
+        // ── Resolve officer branch from pm_officers ────────────────────────
         $branchId   = null;
         $branchName = null;
 
@@ -142,14 +132,80 @@ class AuthController extends Controller
                 ->first();
 
             if ($officer && $officer->branch_id) {
-                $branchId = $officer->branch_id;
-
-                // Resolve the branch name from the organizations table
+                $branchId   = $officer->branch_id;
                 $branch     = Organization::find($branchId);
                 $branchName = $branch?->name;
             }
         }
-        // ─────────────────────────────────────────────────────────────
+
+        // ── NEW: Resolve customer record from pm_customers ─────────────────
+        //
+        // FIX: No cross-connection subqueries. Customer model uses pharma_marketing
+        // connection; organizations is on platform. Resolve org tree IDs in PHP first.
+        //
+        // Resolution order:
+        //   1. Look up by platform_user_id (already linked — fastest path)
+        //   2. Not found → try linkPlatformUser() by email (admin pre-created record)
+        //   3. Still not found + customer role → createFromRegistration()
+        //   4. No org or admin/officer role → skip
+        $customerId    = null;
+        $customerOrgId = null;
+
+        if ($rootOrgId) {
+            // Resolve all org IDs in this tree using the platform connection (PHP-side)
+            $treeOrgIds = \Illuminate\Support\Facades\DB::connection('platform')
+                ->table('organizations')
+                ->where('root_org_id', $rootOrgId)
+                ->orWhere('id', $rootOrgId)
+                ->pluck('id')
+                ->toArray();
+
+            // Step 1: already linked — search across the whole tree using PHP array
+            $customer = Customer::where('platform_user_id', $user->id)
+                ->whereIn('org_id', $treeOrgIds)
+                ->first();
+
+            // Step 2: admin pre-created a customer with this email — link them
+            if (! $customer) {
+                $customerService = app(\Modules\PharmaMarketing\Services\CustomerService::class);
+                $customer = $customerService->linkPlatformUser(
+                    orgId:          $rootOrgId,
+                    platformUserId: $user->id,
+                    email:          $user->email,
+                );
+            }
+
+            // Step 3: new self-registrant with no pre-existing record
+            if (! $customer) {
+                $roleSlug       = $rolePayload['slug'] ?? '';
+                $isCustomerRole = in_array($roleSlug, ['customer', 'user', 'viewer', '']);
+
+                if ($isCustomerRole) {
+                    try {
+                        if (! isset($customerService)) {
+                            $customerService = app(\Modules\PharmaMarketing\Services\CustomerService::class);
+                        }
+                        $customer = $customerService->createFromRegistration(
+                            orgId:          $rootOrgId,
+                            platformUserId: $user->id,
+                            displayName:    $user->actor?->display_name ?? $user->username,
+                            email:          $user->email,
+                            phone:          null,
+                        );
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning(
+                            "AuthController: createFromRegistration failed for user {$user->id}: " . $e->getMessage()
+                        );
+                    }
+                }
+            }
+
+            if ($customer) {
+                $customerId    = $customer->id;
+                $customerOrgId = $customer->org_id;
+            }
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         return response()->json([
             'user' => [
@@ -164,10 +220,12 @@ class AuthController extends Controller
                 'root_org_id' => $rootOrgId,
                 'org_status'  => $org?->status,
                 'org_name'    => $org?->name,
-                // ── NEW ──────────────────────────────────────────────
-                'branch_id'   => $branchId,   // always current, from pm_officers
+                'branch_id'   => $branchId,
                 'branch_name' => $branchName,
-                // ─────────────────────────────────────────────────────
+                // ── NEW: customer context ─────────────────────────────────
+                'customer_id'     => $customerId,    // pm_customers.id
+                'customer_org_id' => $customerOrgId, // branch the customer belongs to
+                // ─────────────────────────────────────────────────────────
                 'primary_role' => $rolePayload,
                 'roles'        => $rolePayload ? [$rolePayload] : [],
             ],

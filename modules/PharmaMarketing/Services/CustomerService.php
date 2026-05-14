@@ -1,4 +1,15 @@
 <?php
+// FILE: modules/PharmaMarketing/Services/CustomerService.php
+// PATH: modules/PharmaMarketing/Services/CustomerService.php
+//
+// CHANGES:
+//   1. create() — always stores org_id as ROOT org (never branch)
+//                 stores home_branch_id if a branch was specified
+//   2. list()   — always queries by root org; branch filter becomes
+//                 an officer/visit filter, not an org_id filter
+//   3. createFromRegistration() — stores root org, not branch
+//   4. linkPlatformUser() — searches by root org
+//   All other methods unchanged.
 
 namespace Modules\PharmaMarketing\Services;
 
@@ -15,19 +26,28 @@ class CustomerService
     ) {}
 
     /**
-     * Create a customer under the given org node.
-     * Always stores org_id as the exact node (branch or root).
+     * Create a customer.
+     *
+     * CHANGE: org_id is always the ROOT org.
+     * home_branch_id records which branch created them (for reporting).
+     * This allows any branch to serve the customer.
      */
     public function create(string $orgId, array $data): Customer
     {
         return DB::connection('pharma_marketing')->transaction(function () use ($orgId, $data) {
+            // ── CHANGE: resolve root org ──────────────────────────────────
+            $rootOrgId = $this->scope->rootId($orgId);
+            $isBranch  = $rootOrgId !== $orgId;
+            // ─────────────────────────────────────────────────────────────
+
             $contacts = $data['contacts'] ?? [];
             unset($data['contacts']);
 
             $customer = Customer::create(array_merge($data, [
-                'org_id' => $orgId,
-                'code'   => $data['code'] ?? $this->generateCode($orgId),
-                'status' => 'active',
+                'org_id'         => $rootOrgId,          // ← always root
+                'home_branch_id' => $isBranch ? $orgId : null, // ← which branch created them
+                'code'           => $data['code'] ?? $this->generateCode($rootOrgId),
+                'status'         => 'active',
             ]));
 
             foreach ($contacts as $i => $contact) {
@@ -47,28 +67,30 @@ class CustomerService
     }
 
     /**
-     * List customers with org-tree awareness.
+     * List customers.
      *
-     * Root admin   → sees customers from ALL branches + root
-     * Branch user  → sees customers from their branch only
-     *
-     * Root admin can further filter by branch:
-     *   $filters['branch_id'] = '01KMQ1...'
+     * CHANGE: always queries root org — all branches see all customers.
+     * Branch admins/officers filter by their assigned customers via officer_id.
+     * No more branch-scoping via org_id tree walk.
      */
     public function list(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
+        // ── CHANGE: always use root org ───────────────────────────────────
+        $rootOrgId = $this->scope->rootId($orgId);
+        // ─────────────────────────────────────────────────────────────────
 
-        return Customer::whereIn('org_id', $orgIds)
+        return Customer::where('org_id', $rootOrgId)
             ->when(isset($filters['customer_type']), fn($q) => $q->where('customer_type', $filters['customer_type']))
             ->when(isset($filters['status']),         fn($q) => $q->where('status', $filters['status']))
             ->when(isset($filters['category']),       fn($q) => $q->where('category', $filters['category']))
             ->when(isset($filters['tier']),           fn($q) => $q->where('tier', $filters['tier']))
             ->when(isset($filters['officer_id']),     fn($q) => $q->where('assigned_officer_id', $filters['officer_id']))
+            // ── CHANGE: branch_id now filters by home_branch_id (optional reporting filter)
+            ->when(isset($filters['branch_id']),      fn($q) => $q->where('home_branch_id', $filters['branch_id']))
             ->when(isset($filters['search']),         fn($q) => $q->where(function ($q) use ($filters) {
-                $q->where('name', 'ilike', "%{$filters['search']}%")
+                $q->where('name',  'ilike', "%{$filters['search']}%")
                   ->orWhere('phone', 'ilike', "%{$filters['search']}%")
-                  ->orWhere('code', 'ilike', "%{$filters['search']}%");
+                  ->orWhere('code',  'ilike', "%{$filters['search']}%");
             }))
             ->with(['contacts' => fn($q) => $q->where('is_primary', true)])
             ->orderBy('name')
@@ -94,13 +116,12 @@ class CustomerService
         if ($data['is_primary'] ?? false) {
             CustomerContact::where('customer_id', $customerId)->update(['is_primary' => false]);
         }
-
         return CustomerContact::create(array_merge($data, ['customer_id' => $customerId]));
     }
 
-        /**
+    /**
      * Called by AuthController after customer registers via jadosoft-lite.
-     * Idempotent.
+     * CHANGE: always uses root org.
      */
     public function createFromRegistration(
         string $orgId,
@@ -112,19 +133,23 @@ class CustomerService
         return DB::connection('pharma_marketing')->transaction(function () use (
             $orgId, $platformUserId, $displayName, $email, $phone
         ) {
+            // ── CHANGE: always root org ───────────────────────────────────
+            $rootOrgId = $this->scope->rootId($orgId);
+            // ─────────────────────────────────────────────────────────────
+
             $existing = Customer::where('platform_user_id', $platformUserId)
-                ->where('org_id', $orgId)
+                ->where('org_id', $rootOrgId)
                 ->first();
 
             if ($existing) return $existing;
 
             return Customer::create([
-                'org_id'              => $orgId,
+                'org_id'              => $rootOrgId,   // ← always root
                 'platform_user_id'    => $platformUserId,
                 'registration_source' => 'self_registered',
                 'customer_type'       => 'b2c',
                 'name'                => $displayName,
-                'code'                => $this->generateCode($orgId),
+                'code'                => $this->generateCode($rootOrgId),
                 'email'               => $email,
                 'phone'               => $phone,
                 'status'              => 'active',
@@ -135,13 +160,18 @@ class CustomerService
 
     /**
      * Link an admin-created customer to a platform user by matching email.
+     * CHANGE: searches by root org so branch-created customers are found too.
      */
     public function linkPlatformUser(
         string $orgId,
         string $platformUserId,
         string $email
     ): ?Customer {
-        $customer = Customer::where('org_id', $orgId)
+        // ── CHANGE: use root org so branch-created customers are found ────
+        $rootOrgId = $this->scope->rootId($orgId);
+        // ─────────────────────────────────────────────────────────────────
+
+        $customer = Customer::where('org_id', $rootOrgId)
             ->where('email', $email)
             ->whereNull('platform_user_id')
             ->first();
@@ -159,12 +189,9 @@ class CustomerService
 
     private function generateCode(string $orgId): string
     {
-        // Use root org for unique code generation across the whole tree
         $rootOrgId = $this->scope->rootId($orgId);
 
-        $orgIds = $this->scope->scopeIds($rootOrgId);
-
-        $last = Customer::whereIn('org_id', $orgIds)
+        $last = Customer::where('org_id', $rootOrgId)
             ->whereNotNull('code')
             ->orderBy('created_at', 'desc')
             ->value('code');
