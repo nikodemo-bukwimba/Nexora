@@ -6,46 +6,69 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Communications\Models\DirectConversation;
 use Modules\Communications\Models\DirectMessage;
+use Modules\Communications\Traits\ActorNameResolver;
 
 class DirectMessageService
 {
-    public function getOrCreateConversation(string $actorA, string $actorB): DirectConversation
+    use ActorNameResolver;
+
+    public function getOrCreateConversation(string $actorA, string $actorB): array
     {
         // Always store with lower ULID as initiator for consistent lookup
         [$initiator, $recipient] = $actorA < $actorB
             ? [$actorA, $actorB]
             : [$actorB, $actorA];
 
-        return DirectConversation::firstOrCreate(
+        $conv = DirectConversation::firstOrCreate(
             ['initiator_actor_id' => $initiator, 'recipient_actor_id' => $recipient],
             ['status' => 'active', 'retention_days' => 0]
         );
+
+        return $this->formatConversation($conv);
     }
 
     public function listConversations(string $actorId, int $perPage): LengthAwarePaginator
     {
-        return DirectConversation::where('initiator_actor_id', $actorId)
+        $paginator = DirectConversation::where('initiator_actor_id', $actorId)
             ->orWhere('recipient_actor_id', $actorId)
             ->where('status', 'active')
             ->orderBy('last_message_at', 'desc')
             ->paginate($perPage);
+
+        // Resolve all actor names in one query
+        $actorIds = $paginator->flatMap(fn($c) => [
+            $c->initiator_actor_id,
+            $c->recipient_actor_id,
+        ])->unique()->values()->all();
+
+        $this->resolveNames($actorIds);
+
+        // Replace items with enriched format
+        $paginator->through(fn($conv) => $this->formatConversation($conv));
+
+        return $paginator;
     }
 
-    public function send(string $conversationId, string $senderActorId, array $data): DirectMessage
+    public function getConversation(string $conversationId): array
     {
-        return DB::connection('communications')->transaction(function () use ($conversationId, $senderActorId, $data) {
+        $conv = DirectConversation::findOrFail($conversationId);
+        return $this->formatConversation($conv);
+    }
 
+    public function send(string $conversationId, string $senderActorId, array $data): array
+    {
+        $message = DB::connection('communications')->transaction(function () use ($conversationId, $senderActorId, $data) {
             $message = DirectMessage::create([
-                'conversation_id'  => $conversationId,
-                'sender_actor_id'  => $senderActorId,
-                'content'          => $data['content'] ?? null,   // pre-encrypted by client
-                'content_type'     => $data['content_type'] ?? 'text',
-                'reply_to_id'      => $data['reply_to_id'] ?? null,
+                'conversation_id'   => $conversationId,
+                'sender_actor_id'   => $senderActorId,
+                'content'           => $data['content'] ?? null,
+                'content_type'      => $data['content_type'] ?? 'text',
+                'reply_to_id'       => $data['reply_to_id'] ?? null,
                 'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
-                'forwarded'        => isset($data['forwarded_from_id']),
-                'latitude'         => $data['latitude'] ?? null,
-                'longitude'        => $data['longitude'] ?? null,
-                'status'           => 'sent',
+                'forwarded'         => isset($data['forwarded_from_id']),
+                'latitude'          => $data['latitude'] ?? null,
+                'longitude'         => $data['longitude'] ?? null,
+                'status'            => 'sent',
             ]);
 
             DirectConversation::where('id', $conversationId)->update([
@@ -55,15 +78,25 @@ class DirectMessageService
 
             return $message->fresh(['attachments', 'reactions']);
         });
+
+        return $this->formatMessage($message);
     }
 
     public function getMessages(string $conversationId, int $perPage): LengthAwarePaginator
     {
-        return DirectMessage::where('conversation_id', $conversationId)
+        $paginator = DirectMessage::where('conversation_id', $conversationId)
             ->where('deleted_for_everyone', false)
             ->with(['attachments', 'reactions', 'replyTo'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
+        // Resolve all sender names in one query
+        $senderIds = $paginator->pluck('sender_actor_id')->unique()->values()->all();
+        $this->resolveNames($senderIds);
+
+        $paginator->through(fn($msg) => $this->formatMessage($msg));
+
+        return $paginator;
     }
 
     public function markDelivered(string $messageId): void
@@ -109,11 +142,6 @@ class DirectMessageService
         );
     }
 
-    public function getConversation(string $conversationId): DirectConversation
-    {
-        return DirectConversation::findOrFail($conversationId);
-    }
-
     public function close(string $conversationId, string $actorId): void
     {
         $conv = DirectConversation::findOrFail($conversationId);
@@ -126,17 +154,17 @@ class DirectMessageService
         $conv->update(['status' => 'active', 'closed_by' => null, 'closed_at' => null]);
     }
 
-    public function editMessage(string $messageId, string $actorId, string $content): DirectMessage
+    public function editMessage(string $messageId, string $actorId, string $content): array
     {
         $message = DirectMessage::where('sender_actor_id', $actorId)->findOrFail($messageId);
         $message->update(['content' => $content, 'edited_at' => now()]);
-        return $message->fresh();
+        return $this->formatMessage($message->fresh());
     }
 
     public function togglePin(string $messageId, string $actorId): bool
     {
         $message = DirectMessage::findOrFail($messageId);
-        $pinned = !$message->is_pinned;
+        $pinned  = !$message->is_pinned;
         $message->update(['is_pinned' => $pinned]);
         return $pinned;
     }
@@ -154,12 +182,68 @@ class DirectMessageService
         return \Modules\Communications\Models\MessageReceipt::where('message_type', 'DirectMessage')
             ->where('message_id', $messageId)
             ->whereNotNull('read_at')
-            ->with('actor')
             ->get()
-            ->map(fn($r) => [
-                'actor_id' => $r->actor_id,
-                'name'     => $r->actor?->display_name ?? $r->actor_id,
-                'read_at'  => $r->read_at,
-            ]);
+            ->map(function ($r) {
+                return [
+                    'actor_id' => $r->actor_id,
+                    'name'     => $this->resolveName($r->actor_id),
+                    'read_at'  => $r->read_at,
+                ];
+            });
+    }
+
+    // ── Formatters ────────────────────────────────────────────
+
+    /**
+     * Format a DirectConversation into a flat array with resolved names.
+     * This is what the Flutter client receives — it reads:
+     *   initiator_actor_id, initiator_name, recipient_actor_id, recipient_name
+     */
+    private function formatConversation(DirectConversation $conv): array
+    {
+        return [
+            'id'                   => $conv->id,
+            'type'                 => 'direct',
+            'status'               => $conv->status,
+            'initiator_actor_id'   => $conv->initiator_actor_id,
+            'initiator_name'       => $this->resolveName($conv->initiator_actor_id),
+            'recipient_actor_id'   => $conv->recipient_actor_id,
+            'recipient_name'       => $this->resolveName($conv->recipient_actor_id),
+            'last_message_id'      => $conv->last_message_id,
+            'last_message_at'      => $conv->last_message_at?->toIso8601String(),
+            'unread_count'         => 0,   // TODO: per-actor unread tracking
+            'created_at'           => $conv->created_at?->toIso8601String(),
+            'updated_at'           => $conv->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Format a DirectMessage with the resolved sender_name field.
+     * Flutter MessageModel.fromJson reads sender_actor_id and sender_name.
+     */
+    private function formatMessage(DirectMessage $msg): array
+    {
+        return [
+            'id'                  => $msg->id,
+            'conversation_id'     => $msg->conversation_id,
+            'sender_actor_id'     => $msg->sender_actor_id,
+            'sender_name'         => $this->resolveName($msg->sender_actor_id),
+            'content'             => $msg->content,
+            'content_type'        => $msg->content_type,
+            'reply_to_id'         => $msg->reply_to_id,
+            'forwarded_from_id'   => $msg->forwarded_from_id,
+            'forwarded'           => $msg->forwarded,
+            'deleted_for_everyone' => $msg->deleted_for_everyone,
+            'is_pinned'           => $msg->is_pinned ?? false,
+            'is_starred'          => $msg->is_starred ?? false,
+            'is_edited'           => isset($msg->edited_at),
+            'edited_at'           => isset($msg->edited_at) ? $msg->edited_at?->toIso8601String() : null,
+            'status'              => $msg->status,
+            'delivered_at'        => $msg->delivered_at?->toIso8601String(),
+            'read_at'             => $msg->read_at?->toIso8601String(),
+            'created_at'          => $msg->created_at?->toIso8601String(),
+            'attachments'         => $msg->attachments ?? [],
+            'reactions'           => $msg->reactions ?? [],
+        ];
     }
 }

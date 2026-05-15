@@ -89,6 +89,12 @@ class CustomerController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
+            \Illuminate\Support\Facades\Log::info('Customer update request', [
+                'id'   => $id,
+                'body' => $request->all(),
+            ]);
+
+
         $request->validate([
             'name'          => ['sometimes', 'string', 'min:2'],
             'customer_type' => ['sometimes', 'string', 'in:b2b,b2c'],
@@ -104,13 +110,12 @@ class CustomerController extends Controller
             'country'       => ['sometimes', 'nullable', 'string'],
             'notes'         => ['sometimes', 'nullable', 'string'],
             'credit_limit'  => ['sometimes', 'nullable', 'numeric'],
-            // ── Contact person fields (upserted into pm_customer_contacts) ──
             'contact_name'  => ['sometimes', 'nullable', 'string'],
             'contact_phone' => ['sometimes', 'nullable', 'string'],
             'contact_role'  => ['sometimes', 'nullable', 'string'],
         ]);
 
-        $customer = $this->customers->update($id, $request->validated());
+        $customer = $this->customers->update($id, $request->all()); // ← was $request->validated()
 
         return response()->json([
             'message'  => 'Customer updated.',

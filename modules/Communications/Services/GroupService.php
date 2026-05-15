@@ -9,32 +9,33 @@ use Modules\Communications\Models\GroupMessage;
 use Modules\Communications\Models\GroupParticipant;
 use Modules\Communications\Models\MessageReaction;
 use Modules\Communications\Models\MessageReceipt;
+use Modules\Communications\Traits\ActorNameResolver;
 
 class GroupService
 {
-    public function create(string $createdBy, array $data): Group
+    use ActorNameResolver;
+
+    public function create(string $createdBy, array $data): array
     {
-        return DB::connection('communications')->transaction(function () use ($createdBy, $data) {
+        $group = DB::connection('communications')->transaction(function () use ($createdBy, $data) {
 
             $group = Group::create([
-                'name'       => $data['name'],
+                'name'        => $data['name'],
                 'description' => $data['description'] ?? null,
-                'created_by' => $createdBy,
-                'org_id'     => $data['org_id'] ?? null,
-                'type'       => $data['type'] ?? 'group',
-                'status'     => 'active',
+                'created_by'  => $createdBy,
+                'org_id'      => $data['org_id'] ?? null,
+                'type'        => $data['type'] ?? 'group',
+                'status'      => 'active',
             ]);
 
-            // Add creator as super_admin
             GroupParticipant::create([
-                'group_id'  => $group->id,
-                'actor_id'  => $createdBy,
-                'role'      => 'super_admin',
-                'status'    => 'active',
-                'added_by'  => $createdBy,
+                'group_id' => $group->id,
+                'actor_id' => $createdBy,
+                'role'     => 'super_admin',
+                'status'   => 'active',
+                'added_by' => $createdBy,
             ]);
 
-            // Add initial participants
             foreach ($data['participant_ids'] ?? [] as $actorId) {
                 if ($actorId === $createdBy) continue;
                 GroupParticipant::create([
@@ -46,16 +47,18 @@ class GroupService
                 ]);
             }
 
-            // System message: group created
-            $this->sendSystemMessage($group->id, $createdBy, 'group_created', "Group created");
+            $this->sendSystemMessage($group->id, $createdBy, 'group_created', 'Group created');
 
             return $group->fresh(['participants']);
         });
+
+        return $this->formatGroup($group);
     }
 
-    public function get(string $id): Group
+    public function get(string $id): array
     {
-        return Group::with(['participants'])->findOrFail($id);
+        $group = Group::with(['participants'])->findOrFail($id);
+        return $this->formatGroup($group);
     }
 
     public function addParticipant(string $groupId, string $actorId, string $addedBy): GroupParticipant
@@ -107,7 +110,7 @@ class GroupService
         return $participant->fresh();
     }
 
-    public function send(string $groupId, string $senderActorId, array $data): GroupMessage
+    public function send(string $groupId, string $senderActorId, array $data): array
     {
         $group = Group::findOrFail($groupId);
 
@@ -119,18 +122,18 @@ class GroupService
             throw new \RuntimeException('Only admins can send messages in this group.');
         }
 
-        return DB::connection('communications')->transaction(function () use ($groupId, $senderActorId, $data, $group) {
+        $message = DB::connection('communications')->transaction(function () use ($groupId, $senderActorId, $data, $group) {
 
             $message = GroupMessage::create([
-                'group_id'         => $groupId,
-                'sender_actor_id'  => $senderActorId,
-                'content'          => $data['content'] ?? null,
-                'content_type'     => $data['content_type'] ?? 'text',
-                'reply_to_id'      => $data['reply_to_id'] ?? null,
+                'group_id'          => $groupId,
+                'sender_actor_id'   => $senderActorId,
+                'content'           => $data['content'] ?? null,
+                'content_type'      => $data['content_type'] ?? 'text',
+                'reply_to_id'       => $data['reply_to_id'] ?? null,
                 'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
-                'forwarded'        => isset($data['forwarded_from_id']),
-                'latitude'         => $data['latitude'] ?? null,
-                'longitude'        => $data['longitude'] ?? null,
+                'forwarded'         => isset($data['forwarded_from_id']),
+                'latitude'          => $data['latitude'] ?? null,
+                'longitude'         => $data['longitude'] ?? null,
             ]);
 
             $group->update([
@@ -140,15 +143,25 @@ class GroupService
 
             return $message->fresh(['attachments', 'reactions']);
         });
+
+        return $this->formatMessage($message);
     }
 
     public function getMessages(string $groupId, int $perPage): LengthAwarePaginator
     {
-        return GroupMessage::where('group_id', $groupId)
+        $paginator = GroupMessage::where('group_id', $groupId)
             ->where('deleted_for_everyone', false)
             ->with(['attachments', 'reactions', 'replyTo', 'receipts'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
+
+        // Resolve all sender names in one query
+        $senderIds = $paginator->pluck('sender_actor_id')->unique()->values()->all();
+        $this->resolveNames($senderIds);
+
+        $paginator->through(fn($msg) => $this->formatMessage($msg));
+
+        return $paginator;
     }
 
     public function markRead(string $groupId, string $actorId): void
@@ -189,23 +202,20 @@ class GroupService
         ]);
     }
 
-    private function sendSystemMessage(string $groupId, string $actorId, string $event, ?string $content): void
-    {
-        GroupMessage::create([
-            'group_id'        => $groupId,
-            'sender_actor_id' => $actorId,
-            'content'         => $content,
-            'content_type'    => 'text',
-            'is_system_message' => true,
-            'system_event'    => $event,
-        ]);
-    }
-
     public function listForActor(string $actorId): \Illuminate\Support\Collection
     {
-        return Group::whereHas('participants', fn($q) =>
+        $groups = Group::whereHas('participants', fn($q) =>
             $q->where('actor_id', $actorId)->where('status', 'active')
         )->with(['participants'])->orderBy('last_message_at', 'desc')->get();
+
+        // Resolve all participant actor IDs in one query
+        $allActorIds = $groups->flatMap(fn($g) =>
+            $g->participants->pluck('actor_id')
+        )->unique()->values()->all();
+
+        $this->resolveNames($allActorIds);
+
+        return $groups->map(fn($g) => $this->formatGroup($g));
     }
 
     public function close(string $groupId, string $actorId): void
@@ -226,7 +236,7 @@ class GroupService
         $group->update(['status' => 'active', 'closed_by' => null, 'closed_at' => null]);
     }
 
-    public function editMessage(string $messageId, string $actorId, string $content): GroupMessage
+    public function editMessage(string $messageId, string $actorId, string $content): array
     {
         $message = GroupMessage::findOrFail($messageId);
         $group   = Group::find($message->group_id);
@@ -234,7 +244,7 @@ class GroupService
             throw new \RuntimeException('Only the sender or admins can edit messages.');
         }
         $message->update(['content' => $content, 'edited_at' => now()]);
-        return $message->fresh();
+        return $this->formatMessage($message->fresh());
     }
 
     public function togglePin(string $messageId, string $actorId): bool
@@ -262,12 +272,89 @@ class GroupService
         return MessageReceipt::where('message_type', 'GroupMessage')
             ->where('message_id', $messageId)
             ->whereNotNull('read_at')
-            ->with('actor')
             ->get()
             ->map(fn($r) => [
                 'actor_id' => $r->actor_id,
-                'name'     => $r->actor?->display_name ?? $r->actor_id,
+                'name'     => $this->resolveName($r->actor_id),
                 'read_at'  => $r->read_at,
             ]);
+    }
+
+    private function sendSystemMessage(string $groupId, string $actorId, string $event, ?string $content): void
+    {
+        GroupMessage::create([
+            'group_id'          => $groupId,
+            'sender_actor_id'   => $actorId,
+            'content'           => $content,
+            'content_type'      => 'text',
+            'is_system_message' => true,
+            'system_event'      => $event,
+        ]);
+    }
+
+    // ── Formatters ────────────────────────────────────────────
+
+    /**
+     * Format a Group with resolved participant names.
+     * Participants array shape matches what _normalizeGroup() in the
+     * Flutter datasource expects:
+     *   { actor_id, id (= actor_id), name, role, online_status }
+     */
+    private function formatGroup(Group $group): array
+    {
+        $participants = $group->participants->map(fn($p) => [
+            'id'           => $p->actor_id,   // Flutter reads p['id'] as the actor_id
+            'actor_id'     => $p->actor_id,
+            'name'         => $this->resolveName($p->actor_id),
+            'role'         => $p->role,
+            'online_status' => 'offline',      // enriched by PresenceService if needed
+            'last_seen_at' => null,
+        ])->values()->all();
+
+        return [
+            'id'               => $group->id,
+            'type'             => 'group',
+            'name'             => $group->name,
+            'title'            => $group->name,
+            'description'      => $group->description,
+            'avatar_url'       => $group->avatar_url,
+            'created_by'       => $group->created_by,
+            'status'           => $group->status,
+            'participants'     => $participants,
+            'last_message_id'  => $group->last_message_id,
+            'last_message_at'  => $group->last_message_at?->toIso8601String(),
+            'unread_count'     => 0,
+            'created_at'       => $group->created_at?->toIso8601String(),
+            'updated_at'       => $group->updated_at?->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Format a GroupMessage with resolved sender_name.
+     */
+    private function formatMessage(GroupMessage $msg): array
+    {
+        return [
+            'id'                  => $msg->id,
+            'group_id'            => $msg->group_id,
+            'conversation_id'     => $msg->group_id,   // alias — Flutter uses conversation_id
+            'sender_actor_id'     => $msg->sender_actor_id,
+            'sender_name'         => $this->resolveName($msg->sender_actor_id),
+            'content'             => $msg->content,
+            'content_type'        => $msg->content_type,
+            'reply_to_id'         => $msg->reply_to_id,
+            'forwarded_from_id'   => $msg->forwarded_from_id,
+            'forwarded'           => $msg->forwarded,
+            'deleted_for_everyone' => $msg->deleted_for_everyone,
+            'is_system_message'   => $msg->is_system_message ?? false,
+            'system_event'        => $msg->system_event ?? null,
+            'is_pinned'           => $msg->is_pinned ?? false,
+            'is_starred'          => $msg->is_starred ?? false,
+            'is_edited'           => isset($msg->edited_at),
+            'edited_at'           => isset($msg->edited_at) ? $msg->edited_at?->toIso8601String() : null,
+            'created_at'          => $msg->created_at?->toIso8601String(),
+            'attachments'         => $msg->attachments ?? [],
+            'reactions'           => $msg->reactions ?? [],
+        ];
     }
 }
