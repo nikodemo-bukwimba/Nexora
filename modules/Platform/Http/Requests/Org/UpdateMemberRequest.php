@@ -14,6 +14,8 @@ class UpdateMemberRequest extends FormRequest
             'org_role_id' => ['sometimes', 'string', 'size:26', 'exists:platform.org_roles,id'],
             'level'       => ['sometimes', 'integer', 'min:0', 'max:100'],
             'status'      => ['sometimes', 'string', 'in:active,suspended'],
+            'name'  => ['sometimes', 'nullable', 'string', 'min:2'],
+            'phone' => ['sometimes', 'nullable', 'string'],
         ];
     }
 }

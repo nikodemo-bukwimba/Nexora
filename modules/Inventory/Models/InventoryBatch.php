@@ -9,7 +9,7 @@ class InventoryBatch extends InventoryModel
 {
     protected $table    = 'inventory_batches';
     protected $fillable = [
-        'warehouse_id', 'product_id', 'org_id',
+        'warehouse_id', 'product_id', 'variant_id', 'org_id',  // ← variant_id added
         'batch_number', 'sku',
         'quantity_received', 'quantity_available',
         'quantity_reserved', 'quantity_damaged',
@@ -27,6 +27,8 @@ class InventoryBatch extends InventoryModel
             'metadata'       => 'array',
         ];
     }
+
+    // ── Relationships ─────────────────────────────────────────
 
     public function warehouse(): BelongsTo
     {
@@ -47,6 +49,8 @@ class InventoryBatch extends InventoryModel
     {
         return $this->hasMany(StockAlert::class, 'batch_id');
     }
+
+    // ── Helpers ───────────────────────────────────────────────
 
     public function availableQuantity(): int
     {

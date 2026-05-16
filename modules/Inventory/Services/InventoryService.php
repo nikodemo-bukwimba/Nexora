@@ -20,13 +20,20 @@ class InventoryService implements InventoryServiceInterface
 
     // ── Batches ────────────────────────────────────────────────
 
-    public function receiveBatch(string $warehouseId, string $productId, string $orgId, array $data): InventoryBatch
-    {
-        return DB::connection('inventory')->transaction(function () use ($warehouseId, $productId, $orgId, $data) {
-
+    public function receiveBatch(
+        string  $warehouseId,
+        string  $productId,
+        ?string $variantId,       // ← new parameter
+        string  $orgId,
+        array   $data
+    ): InventoryBatch {
+        return DB::connection('inventory')->transaction(function () use (
+            $warehouseId, $productId, $variantId, $orgId, $data
+        ) {
             $batch = InventoryBatch::create([
                 'warehouse_id'       => $warehouseId,
                 'product_id'         => $productId,
+                'variant_id'         => $variantId,           // ← stored
                 'org_id'             => $orgId,
                 'batch_number'       => $data['batch_number'] ?? null,
                 'sku'                => $data['sku'] ?? null,
@@ -35,30 +42,30 @@ class InventoryService implements InventoryServiceInterface
                 'quantity_reserved'  => 0,
                 'quantity_damaged'   => 0,
                 'unit_cost'          => $data['unit_cost'] ?? null,
-                'currency'           => $data['currency'] ?? 'USD',
+                'currency'           => $data['currency'] ?? 'TZS',
                 'status'             => 'active',
                 'expires_at'         => $data['expires_at'] ?? null,
                 'best_before_at'     => $data['best_before_at'] ?? null,
                 'metadata'           => $data['metadata'] ?? null,
             ]);
 
-            // Record the inbound movement
+            // Record inbound movement — include variant_id on the ledger row
             StockMovement::create([
-                'batch_id'       => $batch->id,
-                'warehouse_id'   => $warehouseId,
-                'product_id'     => $productId,
-                'org_id'         => $orgId,
-                'type'           => 'received',
-                'quantity'       => $data['quantity'],
+                'batch_id'        => $batch->id,
+                'warehouse_id'    => $warehouseId,
+                'product_id'      => $productId,
+                'variant_id'      => $variantId,              // ← stored
+                'org_id'          => $orgId,
+                'type'            => 'received',
+                'quantity'        => $data['quantity'],
                 'quantity_before' => 0,
                 'quantity_after'  => $data['quantity'],
-                'ref_type'       => $data['ref_type'] ?? null,
-                'ref_id'         => $data['ref_id'] ?? null,
-                'performed_by'   => $data['performed_by'] ?? null,
-                'notes'          => $data['notes'] ?? 'Stock received',
+                'ref_type'        => $data['ref_type'] ?? null,
+                'ref_id'          => $data['ref_id'] ?? null,
+                'performed_by'    => $data['performed_by'] ?? null,
+                'notes'           => $data['notes'] ?? 'Stock received',
             ]);
 
-            // Check if any alerts should be triggered
             $this->alertService->checkAndCreateAlerts($batch->id);
 
             return $batch->fresh(['warehouse']);
@@ -74,45 +81,78 @@ class InventoryService implements InventoryServiceInterface
     {
         return InventoryBatch::where('org_id', $orgId)
             ->when(isset($filters['warehouse_id']), fn($q) => $q->where('warehouse_id', $filters['warehouse_id']))
-            ->when(isset($filters['product_id']),   fn($q) => $q->where('product_id', $filters['product_id']))
-            ->when(isset($filters['status']),        fn($q) => $q->where('status', $filters['status']))
-            ->when(isset($filters['sku']),           fn($q) => $q->where('sku', 'ilike', "%{$filters['sku']}%"))
+            ->when(isset($filters['product_id']),   fn($q) => $q->where('product_id',   $filters['product_id']))
+            ->when(isset($filters['variant_id']),   fn($q) => $q->where('variant_id',   $filters['variant_id'])) // ← new filter
+            ->when(isset($filters['status']),       fn($q) => $q->where('status',       $filters['status']))
+            ->when(isset($filters['sku']),          fn($q) => $q->where('sku', 'ilike', "%{$filters['sku']}%"))
             ->with(['warehouse'])
             ->orderBy('received_at', 'desc')
             ->paginate($perPage);
     }
 
-    public function getStockForProduct(string $productId, string $orgId): Collection
-    {
+    /**
+     * Return FEFO-ordered active batches.
+     *
+     * When $variantId is provided → scopes to that exact variant (preferred).
+     * When $variantId is null     → falls back to product-level scoping so
+     *                               existing callers without variant context
+     *                               continue to work.
+     */
+    public function getStockForProduct(
+        string  $productId,
+        string  $orgId,
+        ?string $variantId = null
+    ): Collection {
         return InventoryBatch::where('product_id', $productId)
             ->where('org_id', $orgId)
             ->where('status', 'active')
             ->where('quantity_available', '>', 0)
+            ->when(
+                $variantId !== null,
+                fn($q) => $q->where('variant_id', $variantId),  // ← variant-scoped
+            )
             ->with(['warehouse'])
-            ->orderBy('expires_at')    // FEFO: first-expiry first-out
+            ->orderBy('expires_at')   // FEFO
             ->get();
     }
 
-    public function getTotalStock(string $productId, string $orgId): int
-    {
+    public function getTotalStock(
+        string  $productId,
+        string  $orgId,
+        ?string $variantId = null
+    ): int {
         return InventoryBatch::where('product_id', $productId)
             ->where('org_id', $orgId)
             ->where('status', 'active')
+            ->when(
+                $variantId !== null,
+                fn($q) => $q->where('variant_id', $variantId),  // ← variant-scoped
+            )
             ->sum('quantity_available');
     }
 
     // ── Movements ──────────────────────────────────────────────
 
-    public function adjustStock(string $batchId, int $quantityDelta, string $type, string $performedBy, ?string $refType, ?string $refId, ?string $notes): StockMovement
-    {
-        return DB::connection('inventory')->transaction(function () use ($batchId, $quantityDelta, $type, $performedBy, $refType, $refId, $notes) {
-
+    public function adjustStock(
+        string  $batchId,
+        int     $quantityDelta,
+        string  $type,
+        string  $performedBy,
+        ?string $refType,
+        ?string $refId,
+        ?string $notes
+    ): StockMovement {
+        return DB::connection('inventory')->transaction(function () use (
+            $batchId, $quantityDelta, $type, $performedBy, $refType, $refId, $notes
+        ) {
             $batch  = InventoryBatch::lockForUpdate()->findOrFail($batchId);
             $before = $batch->quantity_available;
             $after  = $before + $quantityDelta;
 
             if ($after < 0) {
-                throw new \RuntimeException("Insufficient stock. Available: {$before}, requested deduction: " . abs($quantityDelta));
+                throw new \RuntimeException(
+                    "Insufficient stock. Available: {$before}, requested deduction: " . abs($quantityDelta)
+                );
             }
 
             $batch->update([
@@ -120,10 +160,12 @@ class InventoryService implements InventoryServiceInterface
                 'status'             => $after === 0 ? 'depleted' : $batch->status,
             ]);
 
+            // Carry variant_id from the batch onto the movement ledger row
             $movement = StockMovement::create([
                 'batch_id'        => $batchId,
                 'warehouse_id'    => $batch->warehouse_id,
                 'product_id'      => $batch->product_id,
+                'variant_id'      => $batch->variant_id,       // ← propagated
                 'org_id'          => $batch->org_id,
                 'type'            => $type,
                 'quantity'        => $quantityDelta,
@@ -148,22 +190,27 @@ class InventoryService implements InventoryServiceInterface
             ->paginate($perPage);
     }
 
-    public function transferStock(string $fromBatchId, string $toWarehouseId, int $quantity, string $performedBy): StockMovement
-    {
-        return DB::connection('inventory')->transaction(function () use ($fromBatchId, $toWarehouseId, $quantity, $performedBy) {
-
-            $fromBatch = InventoryBatch::lockForUpdate()->findOrFail($fromBatchId);
-
-            if ($fromBatch->quantity_available < $quantity) {
-                throw new \RuntimeException("Insufficient stock for transfer.");
-            }
-
+    public function transferStock(
+        string $fromBatchId,
+        string $toWarehouseId,
+        int    $quantity,
+        string $performedBy
+    ): StockMovement {
+        return DB::connection('inventory')->transaction(function () use (
+            $fromBatchId, $toWarehouseId, $quantity, $performedBy
+        ) {
+            $fromBatch   = InventoryBatch::lockForUpdate()->findOrFail($fromBatchId);
             $toWarehouse = Warehouse::findOrFail($toWarehouseId);
 
-            // Create new batch in destination warehouse
+            if ($fromBatch->quantity_available < $quantity) {
+                throw new \RuntimeException('Insufficient stock for transfer.');
+            }
+
+            // New batch in destination — carry variant_id across
             $newBatch = InventoryBatch::create([
                 'warehouse_id'       => $toWarehouseId,
                 'product_id'         => $fromBatch->product_id,
+                'variant_id'         => $fromBatch->variant_id,  // ← carried over
                 'org_id'             => $fromBatch->org_id,
                 'batch_number'       => $fromBatch->batch_number,
                 'sku'                => $fromBatch->sku,
@@ -177,17 +224,19 @@ class InventoryService implements InventoryServiceInterface
                 'metadata'           => $fromBatch->metadata,
             ]);
 
-            // Deduct from source
+            // Deduct from source (adjustStock propagates variant_id automatically)
             $outMovement = $this->adjustStock(
                 $fromBatchId, -$quantity, 'transferred', $performedBy,
-                'InventoryBatch', $newBatch->id, "Transferred to warehouse: {$toWarehouse->name}"
+                'InventoryBatch', $newBatch->id,
+                "Transferred to warehouse: {$toWarehouse->name}"
             );
 
-            // Record inbound at destination
+            // Inbound at destination
             StockMovement::create([
                 'batch_id'        => $newBatch->id,
                 'warehouse_id'    => $toWarehouseId,
                 'product_id'      => $newBatch->product_id,
+                'variant_id'      => $newBatch->variant_id,     // ← carried over
                 'org_id'          => $newBatch->org_id,
                 'type'            => 'received',
                 'quantity'        => $quantity,
@@ -205,15 +254,23 @@ class InventoryService implements InventoryServiceInterface
 
     // ── Reservations ───────────────────────────────────────────
 
-    public function reserve(string $batchId, int $quantity, string $refType, string $refId, ?string $expiresAt): StockReservation
-    {
-        return DB::connection('inventory')->transaction(function () use ($batchId, $quantity, $refType, $refId, $expiresAt) {
-
-            $batch = InventoryBatch::lockForUpdate()->findOrFail($batchId);
-
+    public function reserve(
+        string  $batchId,
+        int     $quantity,
+        string  $refType,
+        string  $refId,
+        ?string $expiresAt
+    ): StockReservation {
+        return DB::connection('inventory')->transaction(function () use (
+            $batchId, $quantity, $refType, $refId, $expiresAt
+        ) {
+            $batch     = InventoryBatch::lockForUpdate()->findOrFail($batchId);
             $available = $batch->quantity_available - $batch->quantity_reserved;
+
             if ($available < $quantity) {
-                throw new \RuntimeException("Insufficient available stock. Available: {$available}, requested: {$quantity}");
+                throw new \RuntimeException(
+                    "Insufficient available stock. Available: {$available}, requested: {$quantity}"
+                );
             }
 
             $batch->increment('quantity_reserved', $quantity);
@@ -261,6 +318,7 @@ class InventoryService implements InventoryServiceInterface
                 'batch_id'        => $reservation->batch_id,
                 'warehouse_id'    => $batch->warehouse_id,
                 'product_id'      => $batch->product_id,
+                'variant_id'      => $batch->variant_id,        // ← propagated
                 'org_id'          => $batch->org_id,
                 'type'            => 'sold',
                 'quantity'        => -$reservation->quantity,

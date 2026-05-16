@@ -26,7 +26,11 @@ Route::middleware('auth:sanctum')->prefix('inventory')->name('inventory.')->grou
     Route::get('batches/{id}/movements',           [InventoryController::class, 'movements'])->name('batches.movements');
 
     // ── Product stock overview ─────────────────────────────────
+    // Supports ?variant_id=xxx query param for variant-scoped totals
     Route::get('orgs/{orgId}/products/{productId}/stock', [InventoryController::class, 'stockForProduct'])->name('products.stock');
+
+    // ── Variant stock overview (dedicated endpoint) ────────────
+    Route::get('orgs/{orgId}/variants/{variantId}/stock', [InventoryController::class, 'stockForVariant'])->name('variants.stock');
 
     // ── Reservations ───────────────────────────────────────────
     Route::post('reservations/{id}/release',       [InventoryController::class, 'releaseReservation'])->name('reservations.release');

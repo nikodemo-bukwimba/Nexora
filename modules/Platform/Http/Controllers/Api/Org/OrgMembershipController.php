@@ -64,6 +64,23 @@ class OrgMembershipController extends Controller
                 ->orderByDesc('level')
                 ->get();
 
+            // ── Filter out customer/viewer/user roles — officers only ──────────
+            // Self-registered customers also get org memberships and would appear
+            // in this list without this filter. Only show officer/admin roles.
+            $officerRoleSlugs = ['officer', 'branch_manager', 'owner', 'admin',
+                                 'field_officer', 'org_admin', 'junior_officer'];
+            $allMemberships = $allMemberships->filter(function ($m) use ($officerRoleSlugs) {
+                $slug = $m->orgRole?->slug ?? '';
+                // Exclude known customer roles
+                if (in_array($slug, ['customer', 'user', 'viewer'])) {
+                    return false;
+                }
+                // Include if slug matches officer roles OR if no slug (custom roles)
+                // Custom roles default to showing — customer roles are explicitly excluded
+                return true;
+            });
+            // ─────────────────────────────────────────────────────────────────────
+
             // Deduplicate: prefer branch membership (org_id != rootOrgId) over root
             $deduped = $allMemberships
                 ->groupBy('user_id')
@@ -109,32 +126,58 @@ class OrgMembershipController extends Controller
     // ── GET /api/v1/orgs/{orgId}/members/{userId} ────────────────────────────
     public function show(Request $request, string $orgId, string $userId): JsonResponse
     {
-        // ── FIX 2 ────────────────────────────────────────────────────────────
-        // Resolve the root org id regardless of whether orgId is root or branch
+        // ── FIX 2 (updated) ──────────────────────────────────────────────────
+        // The orgId in the URL is always the ROOT org (that's what the admin
+        // app sends). But the user's membership may be on a BRANCH, not root —
+        // this is the case for invitation-accepted officers and in-app created
+        // officers. The old firstOrFail() with org_id=rootOrgId returned 404
+        // for anyone whose only active membership is on a branch.
+        //
+        // Resolution order:
+        //   1. Check pm_officers → get current branch_id → find that membership
+        //   2. No pm_officers record → search entire org tree for any active membership
+        //   3. Nothing found → 404
+
         $org       = Organization::findOrFail($orgId);
         $rootOrgId = $org->root_org_id ?? $orgId;
 
-        // Look up pm_officers to find the officer's CURRENT branch
-        $pmOfficer = PmOfficer::where('platform_user_id', $userId)
+        // All org ids in this tree (root + all branches)
+        $treeOrgIds = Organization::where('root_org_id', $rootOrgId)
+            ->orWhere('id', $rootOrgId)
+            ->pluck('id');
+
+        // Step 1: check pm_officers for current branch
+        $pmOfficer   = PmOfficer::where('platform_user_id', $userId)
             ->where('org_id', $rootOrgId)
             ->first();
+        $targetOrgId = $pmOfficer?->branch_id;
 
-        // Prefer the branch membership; fall back to whatever org was requested
-        $targetOrgId = $pmOfficer?->branch_id ?? $orgId;
-
-        // Try to find membership for the target org; fall back to any active one
-        $membership = OrgMembership::where('user_id', $userId)
-            ->where('org_id', $targetOrgId)
-            ->where('status', 'active')
-            ->with(['user.actor', 'orgRole', 'organization'])
-            ->first();
-
-        if (! $membership) {
-            // Fallback — original behaviour
-            $membership = OrgMembership::where('org_id', $orgId)
-                ->where('user_id', $userId)
+        // Step 2: find the best membership
+        if ($targetOrgId) {
+            // pm_officers knows the branch — fetch that branch membership
+            $membership = OrgMembership::where('user_id', $userId)
+                ->where('org_id', $targetOrgId)
+                ->where('status', 'active')
                 ->with(['user.actor', 'orgRole', 'organization'])
-                ->firstOrFail();
+                ->first();
+        } else {
+            // No pm_officers record (invitation-accepted, pre-fix officers):
+            // find any active membership in the tree, preferring branch over root
+            $allMemberships = OrgMembership::where('user_id', $userId)
+                ->whereIn('org_id', $treeOrgIds)
+                ->where('status', 'active')
+                ->with(['user.actor', 'orgRole', 'organization'])
+                ->get();
+
+            // Prefer branch membership over root
+            $membership = $allMemberships->first(
+                fn($m) => $m->organization?->type !== 'root'
+            ) ?? $allMemberships->first();
+        }
+
+        // Step 3: hard 404 only if truly nothing found anywhere in the tree
+        if (! $membership) {
+            return response()->json(['message' => 'Member not found.'], 404);
         }
         // ─────────────────────────────────────────────────────────────────────
 
@@ -194,6 +237,9 @@ class OrgMembershipController extends Controller
                 );
 
                 $invitation->update(['status' => 'accepted']);
+            // Note: for invitation-accepted officers (no app_password),
+            // pm_officers record is created by OrgService::acceptInvitation()
+            // — see the accept() method below which calls createFromAdminOrg.
             } catch (\Throwable $e) {
                 \Log::warning("Officer app_password setup failed: {$e->getMessage()}");
             }
@@ -332,13 +378,54 @@ class OrgMembershipController extends Controller
     }
 
     // ── POST /api/v1/orgs/invitations/{token}/accept ──────────────────────────
-    // UNCHANGED
+    //
+    // CHANGE: After accepting, create pm_officers record so the officer:
+    //   1. Appears correctly in officer detail (not as customer/root org)
+    //   2. Can be branch-transferred
+    //   3. Has branch_id resolved by /auth/me
     public function accept(Request $request, string $token): JsonResponse
     {
         $membership = $this->orgService->acceptInvitation(
             $token,
             $request->user()->id
         );
+
+        // ── NEW: create pm_officers record ────────────────────────────────
+        try {
+            $officerService = app(\Modules\PharmaMarketing\Services\OfficerService::class);
+            $user           = $request->user()->load('actor');
+
+            $membershipArray = is_array($membership)
+                ? $membership
+                : (method_exists($membership, 'toArray') ? $membership->toArray() : []);
+
+            $orgId = $membershipArray['org_id']
+                ?? (is_object($membership) ? $membership->org_id ?? null : null);
+
+            if ($orgId) {
+                $org = Organization::find($orgId);
+                if ($org) {
+                    $rootOrgId = $org->root_org_id ?? $org->id;
+                    $branchId  = $org->type === 'branch' ? $org->id : $rootOrgId;
+
+                    $officerService->createFromAdminOrg(
+                        orgId:          $rootOrgId,
+                        branchId:       $branchId,
+                        platformUserId: $user->id,
+                        actorId:        $user->actor_id ?? '',
+                        name:           $user->actor?->display_name ?? $user->username,
+                        email:          $user->email,
+                        phone:          null,
+                        source:         'invitation',
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning(
+                'accept(): failed to create pm_officers record: ' . $e->getMessage()
+            );
+        }
+        // ─────────────────────────────────────────────────────────────────
 
         return response()->json([
             'message'    => 'Invitation accepted.',
@@ -359,6 +446,17 @@ class OrgMembershipController extends Controller
     // UNCHANGED
     public function update(UpdateMemberRequest $request, string $orgId, string $userId): JsonResponse
     {
+        \Illuminate\Support\Facades\Log::info('Officer update request', [
+            'org_id'  => $orgId,
+            'user_id' => $userId,
+            'body'    => $request->all(),
+        ]);
+
+        // ── Resolve root org FIRST — needed for both pm_officers and enrich() ──
+        $org       = \Modules\Platform\Models\Organization::find($orgId);
+        $rootOrgId = $org?->root_org_id ?? $orgId;
+        // ────────────────────────────────────────────────────────────────────────
+
         $membership = $this->orgService->updateMember(
             $orgId,
             $userId,
@@ -366,9 +464,32 @@ class OrgMembershipController extends Controller
             $request->user()->id
         );
 
+        // ── Update pm_officers name/phone ─────────────────────────────────────
+        $name  = $request->input('name');
+        $phone = $request->input('phone');
+
+        if ($name || $phone) {
+            \Illuminate\Support\Facades\Log::info('Updating pm_officers', [
+                'root_org_id' => $rootOrgId,
+                'user_id'     => $userId,
+                'name'        => $name,
+                'phone'       => $phone,
+            ]);
+
+            $updated = \Modules\PharmaMarketing\Models\PmOfficer::where('platform_user_id', $userId)
+                ->where('org_id', $rootOrgId)
+                ->update(array_filter([
+                    'name'  => $name,
+                    'phone' => $phone,
+                ], fn($v) => $v !== null));
+
+            \Illuminate\Support\Facades\Log::info('pm_officers rows updated: ' . $updated);
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         return response()->json([
             'message'    => 'Member updated.',
-            'membership' => $membership,
+            'membership' => $this->enrich($membership, $rootOrgId),
         ]);
     }
 
@@ -419,7 +540,7 @@ class OrgMembershipController extends Controller
             'name'           => $actor?->display_name ?? $user?->username ?? '',
             'username'       => $user?->username ?? '',
             'email'          => $user?->email ?? '',
-            'phone'          => null,
+            'phone'          => $pmOfficer?->phone ?? $user?->actor?->phone ?? null,
             'user_status'    => $user?->status ?? 'active',
             // org_id = membership's org (root or branch, as originally stored)
             'org_id'         => $membership->org_id,

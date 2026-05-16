@@ -5,11 +5,15 @@ namespace Modules\Commerce\Http\Controllers\Api;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Commerce\Services\InventoryDeductionService;
 use Modules\Commerce\Services\OrderService;
 
 class OrderController extends Controller
 {
-    public function __construct(protected OrderService $orders) {}
+    public function __construct(
+        protected OrderService              $orders,
+        protected InventoryDeductionService $inventoryDeduction,  // ← injected
+    ) {}
 
     public function show(string $id): JsonResponse
     {
@@ -71,9 +75,13 @@ class OrderController extends Controller
         $return = $this->orders->approveReturn($returnId, $request->user()->actor_id, $request->resolution, $request->refund_amount ?? null);
         return response()->json(['message' => 'Return approved.', 'return' => $return]);
     }
-        /**
+
+    /**
      * Admin direct order creation — bypasses basket buyer/seller check.
      * Used by the admin dashboard to create orders on behalf of customers.
+     *
+     * Stock is deducted inside the same DB transaction as the order write.
+     * Insufficient stock returns 422 and rolls the whole write back.
      */
     public function adminStore(Request $request, string $orgId): JsonResponse
     {
@@ -103,7 +111,7 @@ class OrderController extends Controller
             ->pluck('id')
             ->toArray();
 
-        // ── Resolve buyer ───────────────────────────────────────
+        // ── Resolve buyer ────────────────────────────────────────
         $buyerActorId = null;
         $buyerOrgId   = $orgId;
         $customerMeta = [];
@@ -121,9 +129,7 @@ class OrderController extends Controller
                 ->first();
 
             if (! $customer) {
-                return response()->json([
-                    'message' => 'Customer not found in your organisation.',
-                ], 404);
+                return response()->json(['message' => 'Customer not found in your organisation.'], 404);
             }
 
             if ($customer->platform_user_id) {
@@ -140,9 +146,10 @@ class OrderController extends Controller
             ];
         }
 
-        // ── Resolve and validate items BEFORE the transaction ───
-        $orderItems = [];
-        $subtotal   = 0;
+        // ── Resolve and validate items BEFORE the transaction ────
+        $orderItems      = [];
+        $deductionItems  = [];   // ← built alongside orderItems for inventory
+        $subtotal        = 0;
 
         foreach ($validated['items'] as $item) {
             $variant = \Modules\Commerce\Models\ProductVariant::with('product')
@@ -160,9 +167,7 @@ class OrderController extends Controller
                 ], 403);
             }
 
-            // Use client-supplied unit_price (promotion/effective price) when
-            // provided; fall back to variant base_price for non-promoted items.
-            $unitPrice  = isset($item['unit_price']) && $item['unit_price'] > 0
+            $unitPrice = isset($item['unit_price']) && $item['unit_price'] > 0
                 ? (float) $item['unit_price']
                 : (float) $variant->base_price;
 
@@ -181,9 +186,18 @@ class OrderController extends Controller
                 'currency'        => $validated['currency'] ?? 'TZS',
                 'discount_amount' => max(0, ((float) $variant->base_price - $unitPrice) * $item['quantity']),
             ];
+
+            // Carry track_inventory flag for deduction step
+            $deductionItems[] = [
+                'product_id'      => $variant->product_id,
+                'variant_id'      => $variant->id,               // ← variant-level
+                'variant_name'    => $variant->name,
+                'quantity'        => $item['quantity'],
+                'track_inventory' => (bool) $variant->product->track_inventory,
+            ];
         }
 
-        // ── Build metadata ───────────────────────────────────────
+        // ── Build metadata ────────────────────────────────────────
         $incomingMeta = $request->input('metadata', []);
         $actor        = $request->user();
         $metadata     = array_merge(
@@ -199,37 +213,53 @@ class OrderController extends Controller
             ]
         );
 
-        // ── Persist ──────────────────────────────────────────────
-        $order = \DB::connection('commerce')->transaction(function () use (
-            $validated, $orgId, $buyerOrgId, $sellerActorId, $buyerActorId,
-            $orderItems, $subtotal, $metadata
-        ) {
-            $order = \Modules\Commerce\Models\Order::create([
-                'seller_org_id'   => $orgId,
-                'buyer_org_id'    => $buyerOrgId,
-                'buyer_actor_id'  => $buyerActorId,
-                'seller_actor_id' => $sellerActorId,
-                'status'          => 'confirmed',
-                'subtotal'        => $subtotal,
-                'total'           => $subtotal,
-                'currency'        => $validated['currency'] ?? 'TZS',
-                'payment_ref'     => $validated['payment_ref'] ?? null,
-                'order_number'    => $this->generateOrderNumber(),
-                'metadata'        => $metadata,
-            ]);
+        // ── Persist + deduct stock (single transaction) ──────────
+        try {
+            $order = \DB::connection('commerce')->transaction(function () use (
+                $validated, $orgId, $buyerOrgId, $sellerActorId, $buyerActorId,
+                $orderItems, $deductionItems, $subtotal, $metadata
+            ) {
+                $order = \Modules\Commerce\Models\Order::create([
+                    'seller_org_id'   => $orgId,
+                    'buyer_org_id'    => $buyerOrgId,
+                    'buyer_actor_id'  => $buyerActorId,
+                    'seller_actor_id' => $sellerActorId,
+                    'status'          => 'confirmed',
+                    'subtotal'        => $subtotal,
+                    'total'           => $subtotal,
+                    'currency'        => $validated['currency'] ?? 'TZS',
+                    'payment_ref'     => $validated['payment_ref'] ?? null,
+                    'order_number'    => $this->generateOrderNumber(),
+                    'metadata'        => $metadata,
+                ]);
 
-            foreach ($orderItems as $item) {
-                $order->items()->create($item);
-            }
+                foreach ($orderItems as $item) {
+                    $order->items()->create($item);
+                }
 
-            return $order;
-        });
+                // ── Inventory deduction (FEFO, track_inventory-gated) ──
+                // Throws RuntimeException on insufficient stock → rolls back.
+                $this->inventoryDeduction->deductForOrder(
+                    orgId:       $orgId,
+                    orderId:     $order->id,
+                    performedBy: $sellerActorId,
+                    items:       $deductionItems,
+                );
+                // ── End inventory deduction ────────────────────────────
+
+                return $order;
+            });
+        } catch (\RuntimeException $e) {
+            // Insufficient stock or other business rule violation
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json([
             'message' => 'Order created.',
             'order'   => $order->load('items'),
         ], 201);
     }
+
     private function generateOrderNumber(): string
     {
         $year  = now()->format('Y');
@@ -240,6 +270,7 @@ class OrderController extends Controller
         $unique = strtoupper(substr(uniqid(), -4));
         return sprintf('ORD-%s-%06d-%s', $year, $count + 1, $unique);
     }
+
     public function markPaid(Request $request, string $id): JsonResponse
     {
         $validated = $request->validate([
@@ -251,7 +282,6 @@ class OrderController extends Controller
 
         $order = \Modules\Commerce\Models\Order::findOrFail($id);
 
-        // Store payment audit fields in metadata
         $meta = $order->metadata ?? [];
         $meta['payment_status']      = $validated['payment_status'];
         $meta['payment_verified_by'] = $validated['payment_verified_by'] ?? null;

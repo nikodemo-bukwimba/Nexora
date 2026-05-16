@@ -14,12 +14,17 @@ use Modules\Commerce\Models\OrderReturn;
 class OrderService
 {
     public function __construct(
-        protected OrgScopeResolverInterface $scope
+        protected OrgScopeResolverInterface   $scope,
+        protected InventoryDeductionService   $inventoryDeduction,  // ← injected
     ) {}
 
     /**
      * Checkout: split basket into one order per seller.
      * Returns array of created orders.
+     *
+     * Stock is deducted inside the same transaction as the order write.
+     * If any item has insufficient stock the whole transaction rolls back
+     * and a RuntimeException bubbles up (caller returns 422).
      */
     public function checkout(string $buyerActorId, array $options = []): array
     {
@@ -75,6 +80,23 @@ class OrderService
                     ]);
                 }
 
+                // ── Inventory deduction (FEFO, track_inventory-gated) ──
+                $deductionItems = $items->map(fn($item) => [
+                    'product_id'      => $item->variant->product_id,
+                    'variant_id'      => $item->variant_id,          // ← variant-level
+                    'variant_name'    => $item->variant->name,
+                    'quantity'        => $item->quantity,
+                    'track_inventory' => $item->variant->product->track_inventory,
+                ])->all();
+
+                $this->inventoryDeduction->deductForOrder(
+                    orgId:       $items->first()->variant->product->org_id,
+                    orderId:     $order->id,
+                    performedBy: $buyerActorId,
+                    items:       $deductionItems,
+                );
+                // ── End inventory deduction ────────────────────────────
+
                 $requiresConfirmation = $items->first()->variant->product->requires_confirmation;
                 if (! $requiresConfirmation) {
                     $order->update(['status' => 'confirmed', 'confirmed_at' => now()]);
@@ -108,9 +130,6 @@ class OrderService
      *
      * Root admin   → sees orders from ALL branches in the tree
      * Branch user  → sees orders from their branch only
-     *
-     * Root admin can filter by branch:
-     *   $filters['branch_id'] = '01KMQ1...'
      */
     public function listForSeller(string $sellerOrgId, array $filters, int $perPage): LengthAwarePaginator
     {

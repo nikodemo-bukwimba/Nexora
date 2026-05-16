@@ -11,23 +11,38 @@ class InventoryController extends Controller
 {
     public function __construct(protected InventoryServiceInterface $inventory) {}
 
-    /** POST /api/v1/inventory/warehouses/{warehouseId}/receive */
+    /**
+     * POST /api/v1/inventory/warehouses/{warehouseId}/receive
+     *
+     * Receives a physical stock delivery into a warehouse batch.
+     * variant_id is now required — it is the link between a Commerce
+     * product variant and its inventory batches.
+     */
     public function receive(Request $request, string $warehouseId): JsonResponse
     {
         $request->validate([
-            'product_id' => ['required', 'string', 'size:26'],
-            'org_id'     => ['required', 'string', 'size:26'],
-            'quantity'   => ['required', 'integer', 'min:1'],
-            'unit_cost'  => ['nullable', 'numeric', 'min:0'],
-            'sku'        => ['nullable', 'string'],
-            'expires_at' => ['nullable', 'date'],
+            'product_id'   => ['required', 'string', 'size:26'],
+            'variant_id'   => ['required', 'string', 'size:26'],  // ← now required
+            'org_id'       => ['required', 'string', 'size:26'],
+            'quantity'     => ['required', 'integer', 'min:1'],
+            'unit_cost'    => ['nullable', 'numeric', 'min:0'],
+            'currency'     => ['nullable', 'string', 'size:3'],
+            'sku'          => ['nullable', 'string', 'max:100'],
+            'batch_number' => ['nullable', 'string', 'max:100'],
+            'expires_at'   => ['nullable', 'date'],
+            'best_before_at' => ['nullable', 'date'],
+            'notes'        => ['nullable', 'string'],
         ]);
 
         $batch = $this->inventory->receiveBatch(
-            $warehouseId,
-            $request->product_id,
-            $request->org_id,
-            array_merge($request->all(), ['performed_by' => $request->user()->actor_id ?? null])
+            warehouseId: $warehouseId,
+            productId:   $request->product_id,
+            variantId:   $request->variant_id,   // ← passed through
+            orgId:       $request->org_id,
+            data:        array_merge(
+                $request->all(),
+                ['performed_by' => $request->user()->actor_id ?? null]
+            )
         );
 
         return response()->json(['message' => 'Stock received.', 'batch' => $batch], 201);
@@ -39,22 +54,64 @@ class InventoryController extends Controller
         return response()->json($this->inventory->getBatch($id));
     }
 
-    /** GET /api/v1/inventory/orgs/{orgId}/batches */
+    /**
+     * GET /api/v1/inventory/orgs/{orgId}/batches
+     *
+     * Supports filtering by variant_id in addition to existing filters.
+     */
     public function listBatches(Request $request, string $orgId): JsonResponse
     {
         return response()->json(
-            $this->inventory->listBatches($orgId, $request->only(['warehouse_id', 'product_id', 'status', 'sku']), (int) $request->get('per_page', 25))
+            $this->inventory->listBatches(
+                $orgId,
+                $request->only(['warehouse_id', 'product_id', 'variant_id', 'status', 'sku']),  // ← variant_id added
+                (int) $request->get('per_page', 25)
+            )
         );
     }
 
-    /** GET /api/v1/inventory/orgs/{orgId}/products/{productId}/stock */
-    public function stockForProduct(string $orgId, string $productId): JsonResponse
+    /**
+     * GET /api/v1/inventory/orgs/{orgId}/products/{productId}/stock
+     *
+     * Returns stock overview for a product, broken down by variant
+     * when variant_id query param is supplied.
+     *
+     * Without ?variant_id → returns all batches for the product (product-level view)
+     * With    ?variant_id → returns batches for that specific variant only
+     */
+    public function stockForProduct(Request $request, string $orgId, string $productId): JsonResponse
     {
-        $batches = $this->inventory->getStockForProduct($productId, $orgId);
-        $total   = $this->inventory->getTotalStock($productId, $orgId);
+        $variantId = $request->query('variant_id');
+
+        $batches = $this->inventory->getStockForProduct($productId, $orgId, $variantId);
+        $total   = $this->inventory->getTotalStock($productId, $orgId, $variantId);
 
         return response()->json([
-            'product_id'   => $productId,
+            'product_id'  => $productId,
+            'variant_id'  => $variantId,   // null when not filtered
+            'total_stock' => $total,
+            'batches'     => $batches,
+        ]);
+    }
+
+    /**
+     * GET /api/v1/inventory/orgs/{orgId}/variants/{variantId}/stock
+     *
+     * Dedicated variant-level stock endpoint.
+     * Returns FEFO-ordered active batches + total available for one variant.
+     */
+    public function stockForVariant(Request $request, string $orgId, string $variantId): JsonResponse
+    {
+        // Resolve product_id from variant — cross-module read via commerce connection
+        $variant = \Modules\Commerce\Models\ProductVariant::findOrFail($variantId);
+
+        $batches = $this->inventory->getStockForProduct($variant->product_id, $orgId, $variantId);
+        $total   = $this->inventory->getTotalStock($variant->product_id, $orgId, $variantId);
+
+        return response()->json([
+            'variant_id'   => $variantId,
+            'product_id'   => $variant->product_id,
+            'variant_name' => $variant->name,
             'total_stock'  => $total,
             'batches'      => $batches,
         ]);
@@ -116,7 +173,14 @@ class InventoryController extends Controller
             'expires_at' => ['nullable', 'date'],
         ]);
 
-        $reservation = $this->inventory->reserve($id, $request->quantity, $request->ref_type, $request->ref_id, $request->expires_at ?? null);
+        $reservation = $this->inventory->reserve(
+            $id,
+            $request->quantity,
+            $request->ref_type,
+            $request->ref_id,
+            $request->expires_at ?? null
+        );
+
         return response()->json(['message' => 'Stock reserved.', 'reservation' => $reservation], 201);
     }
 

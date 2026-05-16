@@ -5,6 +5,7 @@ use Modules\Platform\Http\Controllers\Api\AuthController;
 use Modules\Platform\Http\Controllers\Api\ActivityLogController;
 use Modules\Platform\Http\Controllers\Api\MediaController;
 
+
 Route::prefix('auth')->name('auth.')->group(function () {
     Route::post('register', [AuthController::class, 'register'])->name('register');
     Route::post('login', [AuthController::class, 'login'])->name('login');

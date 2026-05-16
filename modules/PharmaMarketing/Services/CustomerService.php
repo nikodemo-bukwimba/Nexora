@@ -97,12 +97,52 @@ class CustomerService
             ->paginate($perPage);
     }
 
-    public function update(string $id, array $data): Customer
-    {
-        $customer = Customer::findOrFail($id);
-        $customer->update($data);
-        return $customer->fresh(['contacts']);
+public function update(string $id, array $data): Customer
+{
+    $customer = Customer::findOrFail($id);
+
+    // Extract contact fields before updating the customer row
+    $contactName  = $data['contact_name']  ?? null;
+    $contactPhone = $data['contact_phone'] ?? null;
+    $contactRole  = $data['contact_role']  ?? null;
+    unset($data['contact_name'], $data['contact_phone'], $data['contact_role']);
+
+    $customer->update($data);
+
+    // Upsert primary contact if any contact field was provided
+    if ($contactName !== null || $contactPhone !== null || $contactRole !== null) {
+        $existing = CustomerContact::where('customer_id', $customer->id)
+            ->where('is_primary', true)
+            ->first();
+
+        $contactData = array_filter([
+            'name'  => $contactName,
+            'phone' => $contactPhone,
+            'role'  => $contactRole,
+        ], fn($v) => $v !== null);
+
+        try {
+            if ($existing) {
+                $existing->update($contactData);
+            } else {
+                CustomerContact::create(array_merge($contactData, [
+                    'customer_id' => $customer->id,
+                    'name'        => $contactName ?? '',
+                    'is_primary'  => true,
+                ]));
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('CustomerContact create/update failed', [
+                'customer_id'  => $customer->id,
+                'contact_data' => $contactData,
+                'error'        => $e->getMessage(),
+            ]);
+            throw $e;
+        }
     }
+
+    return $customer->fresh(['contacts']);
+}
 
     public function assignOfficer(string $customerId, string $officerActorId): Customer
     {
