@@ -330,31 +330,66 @@ class GroupService
     }
 
     /**
-     * Format a GroupMessage with resolved sender_name.
+     * Format a GroupMessage with resolved sender_name AND reply fields.
      */
     private function formatMessage(GroupMessage $msg): array
     {
+        // ── Reply fields ───────────────────────────────────────
+        $replyToSenderName = null;
+        $replyToContent    = null;
+        if ($msg->reply_to_id) {
+            $replyTo = GroupMessage::find($msg->reply_to_id);
+            if ($replyTo) {
+                $replyToSenderName = $this->resolveName($replyTo->sender_actor_id);
+                $replyToContent    = $replyTo->content;
+            }
+        }
+ 
+        // ── Attachments ────────────────────────────────────────
+        $attachments = [];
+        if ($msg->relationLoaded('attachments')) {
+            $attachments = $msg->attachments->map(fn($a) => [
+                'id'       => $a->id,
+                'url'      => $a->file_url ?? $a->url,
+                'file_url' => $a->file_url ?? $a->url,
+                'type'     => $a->type ?? 'image',
+                'name'     => $a->original_name ?? '',
+                'size'     => $a->size ?? 0,
+            ])->values()->all();
+        }
+ 
         return [
-            'id'                  => $msg->id,
-            'group_id'            => $msg->group_id,
-            'conversation_id'     => $msg->group_id,   // alias — Flutter uses conversation_id
-            'sender_actor_id'     => $msg->sender_actor_id,
-            'sender_name'         => $this->resolveName($msg->sender_actor_id),
-            'content'             => $msg->content,
-            'content_type'        => $msg->content_type,
-            'reply_to_id'         => $msg->reply_to_id,
-            'forwarded_from_id'   => $msg->forwarded_from_id,
-            'forwarded'           => $msg->forwarded,
-            'deleted_for_everyone' => $msg->deleted_for_everyone,
-            'is_system_message'   => $msg->is_system_message ?? false,
-            'system_event'        => $msg->system_event ?? null,
-            'is_pinned'           => $msg->is_pinned ?? false,
-            'is_starred'          => $msg->is_starred ?? false,
-            'is_edited'           => isset($msg->edited_at),
-            'edited_at'           => isset($msg->edited_at) ? $msg->edited_at?->toIso8601String() : null,
-            'created_at'          => $msg->created_at?->toIso8601String(),
-            'attachments'         => $msg->attachments ?? [],
-            'reactions'           => $msg->reactions ?? [],
+            'id'                   => $msg->id,
+            'group_id'             => $msg->group_id,
+            'conversation_id'      => $msg->group_id,   // alias for Flutter
+            'sender_actor_id'      => $msg->sender_actor_id,
+            'sender_name'          => $this->resolveName($msg->sender_actor_id),
+            'content'              => $msg->content,
+            'content_type'         => $msg->content_type,
+            // Reply fields
+            'reply_to_id'          => $msg->reply_to_id,
+            'reply_to_sender_name' => $replyToSenderName,
+            'reply_to_content'     => $replyToContent,
+            // Forwarded
+            'forwarded_from_id'    => $msg->forwarded_from_id,
+            'forwarded'            => (bool) $msg->forwarded,
+            // State
+            'deleted_for_everyone' => (bool) $msg->deleted_for_everyone,
+            'is_system_message'    => (bool) ($msg->is_system_message ?? false),
+            'system_event'         => $msg->system_event,
+            'is_pinned'            => (bool) ($msg->is_pinned ?? false),
+            'is_starred'           => (bool) ($msg->is_starred ?? false),
+            'is_edited'            => isset($msg->edited_at),
+            'edited_at'            => $msg->edited_at?->toIso8601String(),
+            'created_at'           => $msg->created_at?->toIso8601String(),
+            // Attachments
+            'attachments'          => $attachments,
+            'reactions'            => $msg->relationLoaded('reactions')
+                ? $msg->reactions->map(fn($r) => [
+                    'actor_id' => $r->actor_id,
+                    'emoji'    => $r->emoji,
+                ])->values()->all()
+                : [],
         ];
     }
 }
