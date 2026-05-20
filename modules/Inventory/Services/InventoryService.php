@@ -79,15 +79,37 @@ class InventoryService implements InventoryServiceInterface
 
     public function listBatches(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        return InventoryBatch::where('org_id', $orgId)
+        // Resolve the full org scope: root + all its branches.
+        // If $orgId is already a branch, this returns just [$orgId].
+        $orgIds = $this->resolveOrgScope($orgId);
+
+        return InventoryBatch::whereIn('org_id', $orgIds)          // ← was where('org_id', $orgId)
             ->when(isset($filters['warehouse_id']), fn($q) => $q->where('warehouse_id', $filters['warehouse_id']))
             ->when(isset($filters['product_id']),   fn($q) => $q->where('product_id',   $filters['product_id']))
-            ->when(isset($filters['variant_id']),   fn($q) => $q->where('variant_id',   $filters['variant_id'])) // ← new filter
+            ->when(isset($filters['variant_id']),   fn($q) => $q->where('variant_id',   $filters['variant_id']))
             ->when(isset($filters['status']),       fn($q) => $q->where('status',       $filters['status']))
             ->when(isset($filters['sku']),          fn($q) => $q->where('sku', 'ilike', "%{$filters['sku']}%"))
             ->with(['warehouse'])
             ->orderBy('received_at', 'desc')
             ->paginate($perPage);
+    }
+
+    /**
+     * Returns [$orgId] when it's a branch, or [$orgId, ...branchIds] when root.
+     * Crosses into the Platform module via a lightweight query.
+     */
+    private function resolveOrgScope(string $orgId): array
+    {
+        // Platform orgs live on a different connection — raw query to avoid
+        // pulling the full Platform module as a hard dependency.
+        $branches = \DB::connection('platform')
+            ->table('organizations')
+            ->where('root_org_id', $orgId)   // rows whose root IS this org
+            ->where('id', '!=', $orgId)      // exclude root itself to avoid dup
+            ->pluck('id')
+            ->all();
+
+        return array_merge([$orgId], $branches);
     }
 
     /**
@@ -103,31 +125,26 @@ class InventoryService implements InventoryServiceInterface
         string  $orgId,
         ?string $variantId = null
     ): Collection {
+        $orgIds = $this->resolveOrgScope($orgId);   // ← add this
+
         return InventoryBatch::where('product_id', $productId)
-            ->where('org_id', $orgId)
+            ->whereIn('org_id', $orgIds)            // ← was where('org_id', $orgId)
             ->where('status', 'active')
             ->where('quantity_available', '>', 0)
-            ->when(
-                $variantId !== null,
-                fn($q) => $q->where('variant_id', $variantId),  // ← variant-scoped
-            )
+            ->when($variantId !== null, fn($q) => $q->where('variant_id', $variantId))
             ->with(['warehouse'])
-            ->orderBy('expires_at')   // FEFO
+            ->orderBy('expires_at')
             ->get();
     }
 
-    public function getTotalStock(
-        string  $productId,
-        string  $orgId,
-        ?string $variantId = null
-    ): int {
+    public function getTotalStock(string $productId, string $orgId, ?string $variantId = null): int
+    {
+        $orgIds = $this->resolveOrgScope($orgId);
+
         return InventoryBatch::where('product_id', $productId)
-            ->where('org_id', $orgId)
+            ->whereIn('org_id', $orgIds)
             ->where('status', 'active')
-            ->when(
-                $variantId !== null,
-                fn($q) => $q->where('variant_id', $variantId),  // ← variant-scoped
-            )
+            ->when($variantId !== null, fn($q) => $q->where('variant_id', $variantId))
             ->sum('quantity_available');
     }
 

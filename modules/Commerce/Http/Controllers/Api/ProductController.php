@@ -68,7 +68,13 @@ class ProductController extends Controller
             $sellerActorId = $org->actor_id;
         }
 
-        $product = $this->products->create($orgId, $sellerActorId, $request->all());
+        logger()->info('PRODUCT STORE REQUEST', $request->all());
+
+        $product = $this->products->create(
+            $orgId,
+            $sellerActorId,
+            $request->all()
+        );        
         return response()->json(['message' => 'Product created.', 'product' => $product], 201);
     }
 

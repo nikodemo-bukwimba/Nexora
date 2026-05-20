@@ -146,7 +146,7 @@ class SendProductUpdateToCustomer implements ShouldQueue
         return DB::connection('platform')
             ->table('organizations')
             ->where('id', $this->update->org_id)
-            ->value('name') ?? 'Barick Pharmacy';
+            ->value('name') ?? 'Bariki Pharmacy';
     }
 
     // ── In-app delivery (no external call needed) ──────────────
