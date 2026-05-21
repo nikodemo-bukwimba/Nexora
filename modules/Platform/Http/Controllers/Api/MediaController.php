@@ -32,6 +32,21 @@ class MediaController extends Controller
      * The `image` rule uses GD/Exif to verify the actual file content instead
      * of relying on the extension or Content-Type header.
      */
+    /**
+     * URL STRATEGY
+     * ------------
+     * Storage::disk('public')->url() prepends APP_URL from .env.
+     * When APP_URL=http://localhost the stored URL is unreachable from
+     * Flutter running on the same Windows machine but connecting via LAN IP.
+     *
+     * Fix: build the URL from the incoming request's scheme+host so the
+     * stored URL always matches how the client reached the server.
+     *
+     * Examples:
+     *   Flutter hits http://192.168.1.10:8000  → stored URL uses 192.168.1.10:8000
+     *   Flutter hits http://localhost:8000      → stored URL uses localhost:8000
+     *   Production nginx on https://api.example.com → stored URL uses api.example.com
+     */
     public function upload(Request $request): JsonResponse
     {
         $request->validate([
@@ -45,8 +60,8 @@ class MediaController extends Controller
 
         // Derive extension from the actual MIME type so uppercase or missing
         // extensions from Windows paths never produce a wrong filename.
-        $mime      = $file->getMimeType() ?? 'image/jpeg';
-        $extMap    = [
+        $mime   = $file->getMimeType() ?? 'image/jpeg';
+        $extMap = [
             'image/jpeg' => 'jpg',
             'image/png'  => 'png',
             'image/webp' => 'webp',
@@ -58,7 +73,10 @@ class MediaController extends Controller
 
         Storage::disk('public')->putFileAs($dir, $file, $name);
 
-        $url = Storage::disk('public')->url("{$dir}/{$name}");
+        // Build the URL from the request origin so it is reachable by the
+        // same client that made the upload, regardless of APP_URL in .env.
+        $baseUrl = $request->getSchemeAndHttpHost();
+        $url     = "{$baseUrl}/storage/{$dir}/{$name}";
 
         return response()->json([
             'url'  => $url,

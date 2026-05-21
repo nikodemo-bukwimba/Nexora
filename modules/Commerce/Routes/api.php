@@ -22,15 +22,17 @@ Route::middleware('auth:sanctum')->prefix('commerce')->name('commerce.')->group(
     Route::patch('products/{id}',              [ProductController::class, 'update'])->name('products.update');
     Route::post('products/{id}/publish',       [ProductController::class, 'publish'])->name('products.publish');
     Route::post('products/{id}/archive',       [ProductController::class, 'archive'])->name('products.archive');
-    Route::patch('variants/{variantId}',       [VariantController::class, 'update'])
-    ->name('variants.update');
+
+    // ── Variants ───────────────────────────────────────────────
+    // updateVariant lives on ProductController — no separate VariantController.
+    Route::patch('variants/{variantId}',       [ProductController::class, 'updateVariant'])->name('variants.update');
 
     // ── Basket ─────────────────────────────────────────────────
-    Route::get('orgs/{orgId}/basket',                [BasketController::class, 'show'])->name('basket.show');
-    Route::post('orgs/{orgId}/basket/items',         [BasketController::class, 'addItem'])->name('basket.items.add');
+    Route::get('orgs/{orgId}/basket',                     [BasketController::class, 'show'])->name('basket.show');
+    Route::post('orgs/{orgId}/basket/items',              [BasketController::class, 'addItem'])->name('basket.items.add');
     Route::patch('orgs/{orgId}/basket/items/{variantId}', [BasketController::class, 'updateItem'])->name('basket.items.update');
-    Route::delete('orgs/{orgId}/basket/items/{variantId}', [BasketController::class, 'removeItem'])->name('basket.items.remove');
-    Route::post('orgs/{orgId}/basket/checkout',      [BasketController::class, 'checkout'])->name('basket.checkout');
+    Route::delete('orgs/{orgId}/basket/items/{variantId}',[BasketController::class, 'removeItem'])->name('basket.items.remove');
+    Route::post('orgs/{orgId}/basket/checkout',           [BasketController::class, 'checkout'])->name('basket.checkout');
 
     // ── Orders ─────────────────────────────────────────────────
     Route::get('orders/{id}',                              [OrderController::class, 'show'])->name('orders.show');
