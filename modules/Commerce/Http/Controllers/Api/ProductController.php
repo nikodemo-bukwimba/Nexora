@@ -139,4 +139,23 @@ class ProductController extends Controller
 
         $this->pricing->decorateVariants($orgIdsForPricing, $product->variants);
     }
+
+    /** PATCH /api/v1/commerce/variants/{variantId} */
+public function updateVariant(Request $request, string $variantId): JsonResponse
+{
+    $request->validate([
+        'base_price' => ['sometimes', 'numeric', 'min:0'],
+        'currency'   => ['sometimes', 'string', 'size:3'],
+        'is_active'  => ['sometimes', 'boolean'],
+        'sku'        => ['sometimes', 'nullable', 'string', 'max:100'],
+    ]);
+
+    $variant = ProductVariant::findOrFail($variantId);
+    $variant->update($request->only(['base_price', 'currency', 'is_active', 'sku']));
+
+    return response()->json([
+        'message' => 'Variant updated.',
+        'variant' => $variant->fresh(),
+    ]);
+}
 }

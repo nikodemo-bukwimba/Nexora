@@ -35,7 +35,7 @@ return new class extends Migration
             $table->text('address')->nullable();
             $table->string('city', 100)->nullable();
             $table->string('county', 100)->nullable();
-            $table->string('country', 100)->default('Kenya');
+            $table->string('country', 100)->default('TANZANIA');
             $table->decimal('latitude', 10, 7)->nullable();
             $table->decimal('longitude', 10, 7)->nullable();
             $table->integer('gps_accuracy_meters')->nullable();
@@ -53,7 +53,7 @@ return new class extends Migration
 
             // Business metrics
             $table->decimal('credit_limit', 15, 4)->default(0);
-            $table->char('currency', 3)->default('KES');
+            $table->char('currency', 3)->default('TZS');
 
             $table->text('notes')->nullable();
             $table->jsonb('metadata')->nullable();

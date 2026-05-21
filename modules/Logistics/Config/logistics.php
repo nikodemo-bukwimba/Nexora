@@ -5,7 +5,7 @@ return [
     'media_disk'  => env('LOGISTICS_MEDIA_DISK', 'public'),
 
     // Cost calculation
-    'default_currency'       => env('LOGISTICS_CURRENCY', 'KES'),
+    'default_currency'       => env('LOGISTICS_CURRENCY', 'TZS'),
     'weight_unit'            => 'kg',
 
     // Proof of delivery

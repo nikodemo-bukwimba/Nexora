@@ -40,7 +40,7 @@ return new class extends Migration
             $table->decimal('weight_kg', 10, 4)->nullable();
             $table->char('rate_id', 26)->nullable();              // FK → lg_delivery_rates
             $table->decimal('delivery_cost', 15, 4)->nullable(); // computed from rate card
-            $table->char('currency', 3)->default('KES');
+            $table->char('currency', 3)->default('TZS');
 
             // Timing
             $table->timestamp('estimated_arrival_at')->nullable();

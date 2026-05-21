@@ -22,6 +22,8 @@ Route::middleware('auth:sanctum')->prefix('commerce')->name('commerce.')->group(
     Route::patch('products/{id}',              [ProductController::class, 'update'])->name('products.update');
     Route::post('products/{id}/publish',       [ProductController::class, 'publish'])->name('products.publish');
     Route::post('products/{id}/archive',       [ProductController::class, 'archive'])->name('products.archive');
+    Route::patch('variants/{variantId}',       [VariantController::class, 'update'])
+    ->name('variants.update');
 
     // ── Basket ─────────────────────────────────────────────────
     Route::get('orgs/{orgId}/basket',                [BasketController::class, 'show'])->name('basket.show');

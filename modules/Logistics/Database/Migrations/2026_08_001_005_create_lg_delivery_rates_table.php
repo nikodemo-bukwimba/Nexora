@@ -21,7 +21,7 @@ return new class extends Migration
             $table->decimal('rate_per_kg', 15, 4)->default(0);   // × weight_kg
             $table->decimal('min_charge', 15, 4)->default(0);    // minimum total charge
             $table->decimal('max_charge', 15, 4)->nullable();    // cap (null = no cap)
-            $table->char('currency', 3)->default('KES');
+            $table->char('currency', 3)->default('TZS');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 

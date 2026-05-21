@@ -28,7 +28,7 @@ return new class extends Migration
             $table->integer('unit_count')->default(1);
             $table->decimal('declared_value', 15, 4)->nullable();
             $table->decimal('shipping_cost', 15, 4)->nullable();
-            $table->char('currency', 3)->default('KES');
+            $table->char('currency', 3)->default('TZS');
             // Recipient
             $table->string('recipient_name', 255)->nullable();
             $table->string('recipient_phone', 30)->nullable();
