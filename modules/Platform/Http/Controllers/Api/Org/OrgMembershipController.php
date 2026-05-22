@@ -385,22 +385,30 @@ class OrgMembershipController extends Controller
     //   3. Has branch_id resolved by /auth/me
     public function accept(Request $request, string $token): JsonResponse
     {
-        $membership = $this->orgService->acceptInvitation(
-            $token,
-            $request->user()->id
-        );
+        try {
+            $membership = $this->orgService->acceptInvitation(
+                $token,
+                $request->user()->id
+            );
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
+            return response()->json([
+                'message' => 'Invalid or already used invitation token.',
+            ], 404);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (\Throwable) {
+            return response()->json([
+                'message' => 'Something went wrong. Please try again.',
+            ], 500);
+        }
 
-        // ── NEW: create pm_officers record ────────────────────────────────
+        // ── Create pm_officers record ─────────────────────────────────────────
         try {
             $officerService = app(\Modules\PharmaMarketing\Services\OfficerService::class);
             $user           = $request->user()->load('actor');
-
-            $membershipArray = is_array($membership)
-                ? $membership
-                : (method_exists($membership, 'toArray') ? $membership->toArray() : []);
-
-            $orgId = $membershipArray['org_id']
-                ?? (is_object($membership) ? $membership->org_id ?? null : null);
+            $orgId          = is_object($membership) ? $membership->org_id ?? null : null;
 
             if ($orgId) {
                 $org = Organization::find($orgId);
@@ -424,11 +432,11 @@ class OrgMembershipController extends Controller
             \Illuminate\Support\Facades\Log::warning(
                 'accept(): failed to create pm_officers record: ' . $e->getMessage()
             );
+            // Non-fatal — membership was created, officer record is best-effort
         }
-        // ─────────────────────────────────────────────────────────────────
 
         return response()->json([
-            'message'    => 'Invitation accepted.',
+            'message'    => 'You have successfully joined the organization.',
             'membership' => $membership,
         ]);
     }

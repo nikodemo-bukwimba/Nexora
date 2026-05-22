@@ -179,12 +179,14 @@ class OrganizationService implements OrganizationServiceInterface
             throw new \RuntimeException('Roles can only be defined at root org level.');
         }
 
+
         return OrgRole::create([
-            'root_org_id' => $rootOrgId,
-            'name' => $data['name'],
-            'source' => $data['default_role_id'] ?? null ? 'adopted' : 'custom',
+            'root_org_id'     => $rootOrgId,
+            'name'            => $data['name'],
+            'slug'            => \Illuminate\Support\Str::slug($data['name'], '_'),
+            'source'          => $data['default_role_id'] ?? null ? 'adopted' : 'custom',
             'default_role_id' => $data['default_role_id'] ?? null,
-            'is_system' => false,
+            'is_system'       => false,
         ]);
     }
 
@@ -259,14 +261,11 @@ class OrganizationService implements OrganizationServiceInterface
 
         if ($invitation->isExpired()) {
             $invitation->update(['status' => 'expired']);
-            throw new \RuntimeException('Invitation has expired.');
+            throw new \RuntimeException('This invitation has expired.');
         }
 
         return DB::connection('platform')->transaction(function () use ($invitation, $userId) {
 
-            // FIX 1: updateOrCreate instead of create — prevents
-            // SQLSTATE[23505] unique violation on org_memberships_user_id_org_id_org_role_id_unique
-            // when the user already has a membership from a previous failed accept attempt.
             $membership = OrgMembership::updateOrCreate(
                 [
                     'user_id'     => $userId,
@@ -280,10 +279,6 @@ class OrganizationService implements OrganizationServiceInterface
                     'joined_at'  => now(),
                 ]
             );
-
-            // FIX 2: removed stray $this->eventBus->fire(...) call —
-            // $eventBus is never injected into OrganizationService,
-            // causing "Undefined property" ErrorException (500) on every accept.
 
             $invitation->update(['status' => 'accepted']);
 

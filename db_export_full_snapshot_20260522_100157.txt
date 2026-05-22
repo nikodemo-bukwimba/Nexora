@@ -1,0 +1,707 @@
+﻿// ================================================================
+// Database Export : full_snapshot
+// Generated       : 2026-05-22 10:01:57
+// Project         : D:\Projects\Barick Phamacy\nexora
+// Usage           : Review data or upload to Claude for analysis.
+// ================================================================
+
+=== REGISTERED USERS (33) ===
+
+----------------------------------------
+ID            : 01KS50RS1XR9F0JA3ZXCGE1B33
+Username      : msindo_ngoma_ount
+Email         : mn@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-21 10:19:46
+2FA Enabled   : No
+Actor ID      : 01KS50RRV3D7H7QBBY04Y78R20
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KS4PQ1BJP6G2KR6RR35EAMDJ
+Username      : mh-at-hosipitalcom_7e35
+Email         : mh@hosipital.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-21 07:24:03
+2FA Enabled   : No
+Actor ID      : 01KS4PQ0V0Q79BCTSGBBX6TZND
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KS23H5E2YV6JVJE513JYQVRF
+Username      : mh-at-gmailcom_2673
+Email         : mh@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-20 07:10:19
+2FA Enabled   : No
+Actor ID      : 01KS23H4VKV0GBNAD0JV45YQ96
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KRQV501RJHP853XVEV6Z4MCF
+Username      : mwajuma_kamala_diis
+Email         : mk@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-16 07:31:27
+2FA Enabled   : No
+Actor ID      : 01KRQV4ZP5YF918WF73NTW0RXS
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRQ54P3VXW1HGZDCQMW4JGF5
+Username      : inyasi_doha_zz52
+Email         : id@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-16 01:06:49
+2FA Enabled   : No
+Actor ID      : 01KRQ54NX6Z04T214FRNG4SGRB
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRQ513M0M0RXDYWTMCEEF57H
+Username      : michael_castory_hwir
+Email         : mycoca@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-16 01:04:51
+2FA Enabled   : No
+Actor ID      : 01KRQ513CVJQ8HD6ZJ4FWRBNYK
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRQ4P1HPCTDBX0P2C95C87W4
+Username      : vaileth_sinkara_q2lg
+Email         : vs@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-16 00:58:49
+2FA Enabled   : No
+Actor ID      : 01KRQ4P1A91ND80AAPWBNS6N22
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRQ4DMGK5RF4C21P4TCJGKR4
+Username      : vaileth_hospital_rhh3
+Email         : vh@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-16 00:54:13
+2FA Enabled   : No
+Actor ID      : 01KRQ4DM7WQA9REBMX0WB6B7WQ
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KRJGM9VXDMVJFQ1EFSDG3910
+Username      : zuupharmacy_8ftr
+Email         : zuu@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-14 05:51:23
+2FA Enabled   : No
+Actor ID      : 01KRJGM9GKR7J7DJ8BJFKDJGX6
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KRGBQGY9930R2RYX86TKPDRC
+Username      : lazaro-at-gmailcom_f8aa
+Email         : lazaro@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-13 09:47:16
+2FA Enabled   : No
+Actor ID      : 01KRGBQGQD5BE1YM7J4HGPZR0P
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KRG27CKRGVAQNPS6D309YPGH
+Username      : luchagula_pharmacy_dn01
+Email         : lp@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-13 07:01:10
+2FA Enabled   : No
+Actor ID      : 01KRG27CCHRY25HNAX7ECVQW9J
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRG21NEM6988P8MJ4J531643","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Customer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-13T06:58:03.000000Z","updated_at":"2026-05-13T06:58:03.000000Z","slug":"customer"}, status: active)
+
+----------------------------------------
+ID            : 01KRG1TE3A8F1YJQMGKFD22NCR
+Username      : sarafia_pharmacy_2xh8
+Email         : sp@gamil.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-13 06:54:06
+2FA Enabled   : No
+Actor ID      : 01KRG1TDW3857YER7HR6T2C6CF
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+
+----------------------------------------
+ID            : 01KRG1938VYHCKGJ22EAWWXBAY
+Username      : masule_pharmacy_b1ki
+Email         : mp@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-13 06:44:38
+2FA Enabled   : No
+Actor ID      : 01KRG1931GHB86391V9J199A5S
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+
+----------------------------------------
+ID            : 01KRF3Q7XW36B78RGRJDMGZYD7
+Username      : issubi_pharmacy_5pha
+Email         : ip@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 22:08:04
+2FA Enabled   : No
+Actor ID      : 01KRF3Q7PXBV4TPVPNE4NPWZEQ
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+
+----------------------------------------
+ID            : 01KRE8PX2CWRGHNDPYQA5MYDGR
+Username      : issano-at-gmailcom_2710
+Email         : issano@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 14:16:01
+2FA Enabled   : No
+Actor ID      : 01KRE8PWT0MP2PHB68JFCYMV96
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+
+----------------------------------------
+ID            : 01KRDX1BAY6RKRWRRFHV7BBHVV
+Username      : haji_kabavako_g6f7
+Email         : haji@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 10:52:01
+2FA Enabled   : No
+Actor ID      : 01KRDX1B1Y1KDN930EATQQASWM
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDTVV9ED15F89WWD5HKB6PM
+Username      : martha_bukwimba_a5tg
+Email         : martha@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 10:14:03
+2FA Enabled   : No
+Actor ID      : 01KRDTVV15CJHRW6E66KK6BM4D
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDQB99NDCXT7X1S51Q6WCTG
+Username      : masalu_butondo_kzbk
+Email         : masalu@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 09:12:35
+2FA Enabled   : No
+Actor ID      : 01KRDQB8RHMM0CRHFB95TFTG0K
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDHW5BS575RNPWP7Q0G9823
+Username      : butiku_nzali_j7f7
+Email         : butiku@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 07:36:56
+2FA Enabled   : No
+Actor ID      : 01KRDHW4Q9H4AB7QA3N05S2EQ1
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDFDG5FC7FEDJHXG6ZMZYRT
+Username      : makusu_mabugusu_coqe
+Email         : makusu@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 06:53:59
+2FA Enabled   : No
+Actor ID      : 01KRDFDFH9P4Q8E1DEGHWQM61V
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDF1MGEMM4FPTVRVQXMSZQE
+Username      : jamada_njau_avrb
+Email         : jamada@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 06:47:30
+2FA Enabled   : No
+Actor ID      : 01KRDF1KYS0F9D9MPR31DTR7X7
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDENASB0JN23SHFZMK24795
+Username      : abely_doha_ox1c
+Email         : abely@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 06:40:47
+2FA Enabled   : No
+Actor ID      : 01KRDENA77QBNGVG2PMR1F81JM
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDCFEF5GM53M0VJTWGMEQKF
+Username      : chima_kulwa_zhho
+Email         : chima@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 06:02:37
+2FA Enabled   : No
+Actor ID      : 01KRDCFDXCSAHEQE2ZGPX38E8F
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: pending_approval)
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDCDVN641WCKZS59X4GDRV1
+Username      : mwijarubi_robert_4kak
+Email         : mwija@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 06:01:45
+2FA Enabled   : No
+Actor ID      : 01KRDCDV37V06X5DPTTQ0JNYGY
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDBVREPNKK68GPNVXMTR5S3
+Username      : hidaya_hamis_zowa
+Email         : hidaya@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 05:51:52
+2FA Enabled   : No
+Actor ID      : 01KRDBVQWJG58AAZ6FAB5P8KAY
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+  - Bariki Pharmacy Kigamboni (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRDB2TZ55WW8BZN5698G06TQ
+Username      : mwanaidi_khamis_3hp5
+Email         : mwanaidi@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-12 05:38:15
+2FA Enabled   : No
+Actor ID      : 01KRDB2TDF3FND5F1WWKB1DVJF
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Kariakoo (HQ) (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRCEFC4XJCF0SXWDA12VW3JY
+Username      : mpuji_mamoto_l0xl
+Email         : mmamoto@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 21:18:17
+2FA Enabled   : No
+Actor ID      : 01KRCEFBXFR0QYYA5HBS4JCQGE
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRBBJ0MNXNFVZ8HCD2316XEC
+Username      : isaya_hamis_4tz8
+Email         : isaya@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 11:08:04
+2FA Enabled   : No
+Actor ID      : 01KRBBJ02GCA70XPRK8SSENQCX
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRBB9HTWJGYCG48RKR8A039H
+Username      : elia_adam_qgoy
+Email         : eliaadam@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 11:03:26
+2FA Enabled   : No
+Actor ID      : 01KRBB9HARS40ME4346YRB5XGA
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRBA6QWXTQ01K8PZEEQ3TVJH
+Username      : nikodemo_bukwimba_j8j0
+Email         : nikodemobukwimba@gmail.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 10:44:26
+2FA Enabled   : No
+Actor ID      : 01KRBA6QND92HVA2APSE2HDP65
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: transferred)
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7GDX9N044J87R57WAP09T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Officer","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:17.000000Z","updated_at":"2026-05-11T09:57:17.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRB8JCNGQNSVDZ6RRECPATGD
+Username      : khadija_nchimbi_7lxr
+Email         : dee@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 10:15:50
+2FA Enabled   : No
+Actor ID      : 01KRB8JC3GBHP1XWSMGVW4VHFE
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+
+----------------------------------------
+ID            : 01KRB8CTJS10RJCN44CH1X2P9D
+Username      : celestine_msigwa_8fc2
+Email         : celestine@bariki.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 10:12:48
+2FA Enabled   : No
+Actor ID      : 01KRB8CT1RZJPJSPKAN5TGKJKJ
+Actor Status  : active
+Platform Roles: none
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy Mbeya (role: {"id":"01KRB7HFRQYWD6TXE5KTWCE7J3","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Branch Manager","source":"custom","default_role_id":null,"is_system":false,"created_at":"2026-05-11T09:57:52.000000Z","updated_at":"2026-05-11T09:57:52.000000Z","slug":null}, status: active)
+
+----------------------------------------
+ID            : 01KRB6PPBY78P1NH0GA4Q3WVP4
+Username      : admin
+Email         : admin@barikipharmacy.com
+Status        : active
+Email Verified: NOT VERIFIED
+Last Login    : Never
+Last Login IP : N/A
+Created At    : 2026-05-11 09:43:14
+2FA Enabled   : No
+Actor ID      : 01KRB6PNVQV5B2V7A47FRXHF4F
+Actor Status  : active
+Platform Roles:
+  - super_admin [permissions: staff.view, staff.assign, staff.revoke, orgs.view, orgs.approve, orgs.reject, orgs.suspend, orgs.reactivate, users.view, users.suspend, users.ban, users.tier.assign, flags.view, flags.toggle, tiers.view, tiers.manage, audit.view]
+Active Tier   : free
+Organisations :
+  - Bariki Pharmacy (role: {"id":"01KRB6T4Z6Y2F1A6VWN0WS3S1T","root_org_id":"01KRB6T4YZ04MH8R9R3GRBZZC3","name":"Owner","source":"custom","default_role_id":null,"is_system":true,"created_at":"2026-05-11T09:45:07.000000Z","updated_at":"2026-05-11T09:45:07.000000Z","slug":null}, status: active)
+
+
+=== PLATFORM ROLES (4) ===
+
+----------------------------------------
+ID          : 01KRB6FEY1011QA0XP6V034X1E
+Name        : billing_admin
+Description : Manage subscriptions, invoices, and payments.
+System Role : Yes
+Permissions :
+  - orgs.view
+  - users.view
+  - users.tier.assign
+  - tiers.view
+  - tiers.manage
+  - audit.view
+
+----------------------------------------
+ID          : 01KRB6FEY2V9WQRNQ6SGB970C8
+Name        : content_admin
+Description : Manage platform content and announcements.
+System Role : Yes
+Permissions :
+  - orgs.view
+  - flags.view
+  - flags.toggle
+
+----------------------------------------
+ID          : 01KRB6FEXZ5MXJ4FJS2W8C38BZ
+Name        : super_admin
+Description : Full platform access. All permissions.
+System Role : Yes
+Permissions :
+  - staff.view
+  - staff.assign
+  - staff.revoke
+  - orgs.view
+  - orgs.approve
+  - orgs.reject
+  - orgs.suspend
+  - orgs.reactivate
+  - users.view
+  - users.suspend
+  - users.ban
+  - users.tier.assign
+  - flags.view
+  - flags.toggle
+  - tiers.view
+  - tiers.manage
+  - audit.view
+
+----------------------------------------
+ID          : 01KRB6FEY1011QA0XP6V034X1D
+Name        : support_agent
+Description : Read access to orgs and users for support.
+System Role : Yes
+Permissions :
+  - orgs.view
+  - users.view
+  - audit.view
+
+
+=== PLATFORM TIERS (3) ===
+
+----------------------------------------
+ID          : 01KRB6FEY5TFQWY4H4BWKSZ4TX
+Name        : free
+Description : Free tier. Basic platform access.
+Default     : Yes
+Active      : Yes
+Sort Order  : 0
+
+----------------------------------------
+ID          : 01KRB6FEY8ZE3FD9KV8BR57W8E
+Name        : premium
+Description : Premium tier. Enhanced feature access.
+Default     : No
+Active      : Yes
+Sort Order  : 1
+
+----------------------------------------
+ID          : 01KRB6FEY9J7PTGX4Y4JQHK2NZ
+Name        : enterprise
+Description : Enterprise tier. Full platform access.
+Default     : No
+Active      : Yes
+Sort Order  : 2
+
+
+
+   Illuminate\Database\Eloquent\RelationNotFoundException  Call to undefined relationship [orgMemberships] on model [Modules\Platform\Models\Organization].
+
+
+=== AUDIT LOG (latest 35 entries) ===
+
+[2026-05-21 10:19:46] platform | user.registered | User:01KS50RS1XR9F0JA3ZXCGE1B33 | actor:01KS50RRV3D7H7QBBY04Y78R20
+[2026-05-21 07:24:04] platform | user.registered | User:01KS4PQ1BJP6G2KR6RR35EAMDJ | actor:01KS4PQ0V0Q79BCTSGBBX6TZND
+[2026-05-20 07:10:20] platform | user.registered | User:01KS23H5E2YV6JVJE513JYQVRF | actor:01KS23H4VKV0GBNAD0JV45YQ96
+[2026-05-16 07:31:28] platform | user.registered | User:01KRQV501RJHP853XVEV6Z4MCF | actor:01KRQV4ZP5YF918WF73NTW0RXS
+[2026-05-16 01:06:49] platform | user.registered | User:01KRQ54P3VXW1HGZDCQMW4JGF5 | actor:01KRQ54NX6Z04T214FRNG4SGRB
+[2026-05-16 01:04:51] platform | user.registered | User:01KRQ513M0M0RXDYWTMCEEF57H | actor:01KRQ513CVJQ8HD6ZJ4FWRBNYK
+[2026-05-16 00:58:49] platform | user.registered | User:01KRQ4P1HPCTDBX0P2C95C87W4 | actor:01KRQ4P1A91ND80AAPWBNS6N22
+[2026-05-16 00:54:13] platform | user.registered | User:01KRQ4DMGK5RF4C21P4TCJGKR4 | actor:01KRQ4DM7WQA9REBMX0WB6B7WQ
+[2026-05-14 05:51:23] platform | user.registered | User:01KRJGM9VXDMVJFQ1EFSDG3910 | actor:01KRJGM9GKR7J7DJ8BJFKDJGX6
+[2026-05-13 09:47:16] platform | user.registered | User:01KRGBQGY9930R2RYX86TKPDRC | actor:01KRGBQGQD5BE1YM7J4HGPZR0P
+[2026-05-13 07:01:10] platform | user.registered | User:01KRG27CKRGVAQNPS6D309YPGH | actor:01KRG27CCHRY25HNAX7ECVQW9J
+[2026-05-13 06:54:06] platform | user.registered | User:01KRG1TE3A8F1YJQMGKFD22NCR | actor:01KRG1TDW3857YER7HR6T2C6CF
+[2026-05-13 06:44:38] platform | user.registered | User:01KRG1938VYHCKGJ22EAWWXBAY | actor:01KRG1931GHB86391V9J199A5S
+[2026-05-12 22:08:04] platform | user.registered | User:01KRF3Q7XW36B78RGRJDMGZYD7 | actor:01KRF3Q7PXBV4TPVPNE4NPWZEQ
+[2026-05-12 14:16:02] platform | user.registered | User:01KRE8PX2CWRGHNDPYQA5MYDGR | actor:01KRE8PWT0MP2PHB68JFCYMV96
+[2026-05-12 10:52:01] platform | user.registered | User:01KRDX1BAY6RKRWRRFHV7BBHVV | actor:01KRDX1B1Y1KDN930EATQQASWM
+[2026-05-12 10:14:03] platform | user.registered | User:01KRDTVV9ED15F89WWD5HKB6PM | actor:01KRDTVV15CJHRW6E66KK6BM4D
+[2026-05-12 09:12:35] platform | user.registered | User:01KRDQB99NDCXT7X1S51Q6WCTG | actor:01KRDQB8RHMM0CRHFB95TFTG0K
+[2026-05-12 07:36:57] platform | user.registered | User:01KRDHW5BS575RNPWP7Q0G9823 | actor:01KRDHW4Q9H4AB7QA3N05S2EQ1
+[2026-05-12 06:53:59] platform | user.registered | User:01KRDFDG5FC7FEDJHXG6ZMZYRT | actor:01KRDFDFH9P4Q8E1DEGHWQM61V
+[2026-05-12 06:47:30] platform | user.registered | User:01KRDF1MGEMM4FPTVRVQXMSZQE | actor:01KRDF1KYS0F9D9MPR31DTR7X7
+[2026-05-12 06:40:47] platform | user.registered | User:01KRDENASB0JN23SHFZMK24795 | actor:01KRDENA77QBNGVG2PMR1F81JM
+[2026-05-12 06:02:37] platform | user.registered | User:01KRDCFEF5GM53M0VJTWGMEQKF | actor:01KRDCFDXCSAHEQE2ZGPX38E8F
+[2026-05-12 06:01:45] platform | user.registered | User:01KRDCDVN641WCKZS59X4GDRV1 | actor:01KRDCDV37V06X5DPTTQ0JNYGY
+[2026-05-12 05:51:52] platform | user.registered | User:01KRDBVREPNKK68GPNVXMTR5S3 | actor:01KRDBVQWJG58AAZ6FAB5P8KAY
+[2026-05-12 05:38:16] platform | user.registered | User:01KRDB2TZ55WW8BZN5698G06TQ | actor:01KRDB2TDF3FND5F1WWKB1DVJF
+[2026-05-11 21:18:17] platform | user.registered | User:01KRCEFC4XJCF0SXWDA12VW3JY | actor:01KRCEFBXFR0QYYA5HBS4JCQGE
+[2026-05-11 11:08:04] platform | user.registered | User:01KRBBJ0MNXNFVZ8HCD2316XEC | actor:01KRBBJ02GCA70XPRK8SSENQCX
+[2026-05-11 11:03:26] platform | user.registered | User:01KRBB9HTWJGYCG48RKR8A039H | actor:01KRBB9HARS40ME4346YRB5XGA
+[2026-05-11 10:44:26] platform | user.registered | User:01KRBA6QWXTQ01K8PZEEQ3TVJH | actor:01KRBA6QND92HVA2APSE2HDP65
+[2026-05-11 10:15:50] platform | user.registered | User:01KRB8JCNGQNSVDZ6RRECPATGD | actor:01KRB8JC3GBHP1XWSMGVW4VHFE
+[2026-05-11 10:12:48] platform | user.registered | User:01KRB8CTJS10RJCN44CH1X2P9D | actor:01KRB8CT1RZJPJSPKAN5TGKJKJ
+[2026-05-11 09:47:26] platform | flag.toggled | FeatureFlag:platform.default_org_id    | actor:01KRB6PNVQV5B2V7A47FRXHF4F
+[2026-05-11 09:46:19] platform | org.approved | Organization:01KRB6T4YZ04MH8R9R3GRBZZC3 | actor:01KRB6PNVQV5B2V7A47FRXHF4F
+[2026-05-11 09:43:14] platform | user.registered | User:01KRB6PPBY78P1NH0GA4Q3WVP4 | actor:01KRB6PNVQV5B2V7A47FRXHF4F
+
+
