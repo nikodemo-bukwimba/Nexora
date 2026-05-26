@@ -40,31 +40,9 @@ class CustomerController extends Controller
         ]);
 
         $customer = $this->customers->create(
-            $orgId,
-            $request->except(['app_password', 'app_password_confirmation'])
+            $request->except(['app_password', 'app_password_confirmation']),
+            $orgId
         );
-
-        // If admin set a password, auto-register the customer on the platform
-        if ($request->filled('app_password') && $request->filled('email')) {
-            try {
-                $authService = app(\Modules\Platform\Contracts\Services\AuthServiceInterface::class);
-                $username    = \Illuminate\Support\Str::slug($request->email) . '_' . substr(uniqid(), -4);
-
-                $user = $authService->register([
-                    'name'     => $request->name,
-                    'username' => $username,
-                    'email'    => $request->email,
-                    'password' => $request->app_password,
-                ]);
-
-                $customer->update([
-                    'platform_user_id'    => $user->id,
-                    'registration_source' => 'admin',
-                ]);
-            } catch (\Throwable $e) {
-                \Log::warning("Failed to create platform account for customer {$customer->id}: {$e->getMessage()}");
-            }
-        }
 
         return response()->json([
             'message'  => 'Customer created.',
