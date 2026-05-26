@@ -23,14 +23,15 @@ class ProductService
             $variants = $data['variants'] ?? [];
             unset($data['variants']);
 
-            // Products are always owned by the ROOT org — never a branch.
-            // This ensures the catalog is shared across all branches.
-            $rootOrgId = $this->scope->rootId($orgId);
+            // Products are scoped to the org that creates them.
+            // Branch admins create products owned by their branch.
+            // Root admins create products owned by the root org (catalog-wide).
+            // $orgId is already the effectiveOrgId resolved by the controller.
 
             $product = Product::create(array_merge($data, [
-                'org_id'          => $rootOrgId,
+                'org_id'          => $orgId,
                 'seller_actor_id' => $sellerActorId,
-                'slug'            => $this->generateSlug($rootOrgId, $data['name']),
+                'slug'            => $this->generateSlug($orgId, $data['name']),
                 'status'          => 'draft',
             ]));
 
@@ -63,22 +64,20 @@ class ProductService
     }
 
     /**
-     * List products for an org.
+     * List products for an org with branch-aware scoping.
      *
-     * Products are ALWAYS stored at root org level (catalog is org-wide).
-     * Any orgId passed (root or branch) resolves to the root so that:
-     *   - Admin sees products they created ✅
-     *   - Branch officer sees the full catalog ✅
-     *   - Customer app sees the full catalog ✅
+     * Root org context  → returns products from ALL branches in the tree
+     *                     (root itself + every branch under it).
+     * Branch org context → returns only products owned by that branch.
      *
-     * Optional filter: $filters['branch_id'] has no effect here —
-     * product catalog is global to the org tree.
+     * This uses OrgScopeResolverInterface::scopeIds() which already
+     * handles root-expands-to-tree vs branch-stays-as-self logic.
      */
     public function listForOrg(string $orgId, array $filters, int $perPage): LengthAwarePaginator
     {
-        $rootOrgId = $this->scope->rootId($orgId);
+        $orgIds = $this->scope->scopeIds($orgId, $filters['branch_id'] ?? null);
 
-        return Product::where('org_id', $rootOrgId)
+        return Product::whereIn('org_id', $orgIds)
             ->when(isset($filters['status']), fn($q) => $q->where('status', $filters['status']))
             ->when(isset($filters['type']),   fn($q) => $q->where('type', $filters['type']))
             ->when(isset($filters['search']), fn($q) => $q->where('name', 'ilike', "%{$filters['search']}%"))
@@ -104,12 +103,12 @@ class ProductService
         return $product->fresh();
     }
 
-    private function generateSlug(string $rootOrgId, string $name): string
+    private function generateSlug(string $orgId, string $name): string
     {
         $base = Str::slug($name);
         $slug = $base;
         $i    = 1;
-        while (Product::where('org_id', $rootOrgId)->where('slug', $slug)->exists()) {
+        while (Product::where('org_id', $orgId)->where('slug', $slug)->exists()) {
             $slug = "{$base}-{$i}";
             $i++;
         }

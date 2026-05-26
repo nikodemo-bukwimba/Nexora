@@ -18,22 +18,23 @@ class ProductController extends Controller
         protected PromotionPricingService $pricing,
     ) {}
 
-    /** GET /api/v1/commerce/orgs/{orgId}/products */
+    /**
+     * GET /api/v1/commerce/orgs/{orgId}/products
+     *
+     * Root org  → products from the full org tree (all branches).
+     * Branch    → products owned by that branch only.
+     */
     public function index(Request $request, string $orgId): JsonResponse
     {
         $paginator = $this->products->listForOrg(
             $orgId,
-            $request->only(['status', 'type', 'search']),
+            $request->only(['status', 'type', 'search', 'branch_id']),
             (int) $request->get('per_page', 25)
         );
 
-        // Root org promotions → all branches see them.
-        // Branch own promotions → only that branch sees them.
-        $rootOrgId          = Organization::find($orgId)?->root_org_id ?? $orgId;
-        $orgIdsForPricing   = collect([$rootOrgId, $orgId])->unique()->values()->all();
+        $rootOrgId        = Organization::find($orgId)?->root_org_id ?? $orgId;
+        $orgIdsForPricing = collect([$rootOrgId, $orgId])->unique()->values()->all();
 
-        // Pass $orgId as requestingOrgId so branch overrides are resolved.
-        // When $orgId IS the root, the service finds no branch overrides (correct).
         $this->decoratePaginator($orgIdsForPricing, $paginator, $orgId);
 
         return response()->json($paginator);
@@ -44,7 +45,6 @@ class ProductController extends Controller
     {
         $product = $this->products->get($id);
 
-        // org_id query param determines which branch prices and promotions apply.
         $requestingOrgId  = $request->query('org_id', $product->org_id);
         $rootOrgId        = Organization::find($requestingOrgId)?->root_org_id ?? $requestingOrgId;
         $orgIdsForPricing = collect([$rootOrgId, $requestingOrgId])->unique()->values()->all();
@@ -54,7 +54,12 @@ class ProductController extends Controller
         return response()->json($product);
     }
 
-    /** POST /api/v1/commerce/orgs/{orgId}/products */
+    /**
+     * POST /api/v1/commerce/orgs/{orgId}/products
+     *
+     * Products are created at the supplied $orgId (root or branch).
+     * The $orgId in the route IS the owning org — do not force to root.
+     */
     public function store(Request $request, string $orgId): JsonResponse
     {
         $request->validate([
@@ -127,13 +132,6 @@ class ProductController extends Controller
 
     // ── Pricing decoration helpers ─────────────────────────────────────────────
 
-    /**
-     * Decorate all variants in an entire paginator in one batch.
-     *
-     * @param  array       $orgIdsForPricing  [rootOrgId, requestingOrgId] for promotion scoping
-     * @param  mixed       $paginator
-     * @param  string      $requestingOrgId   The branch whose price overrides to apply
-     */
     private function decoratePaginator(
         array  $orgIdsForPricing,
         \Illuminate\Pagination\LengthAwarePaginator $paginator,
@@ -149,10 +147,6 @@ class ProductController extends Controller
         $this->pricing->decorateVariants($orgIdsForPricing, $allVariants, $requestingOrgId);
     }
 
-    /**
-     * @param  array   $orgIdsForPricing  [rootOrgId, requestingOrgId]
-     * @param  string  $requestingOrgId   Branch whose price overrides to apply
-     */
     private function decorateProduct(
         array   $orgIdsForPricing,
         string  $requestingOrgId,
