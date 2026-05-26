@@ -17,6 +17,10 @@ class CommerceServiceProvider extends ServiceProvider
         $this->app->bind(ProductService::class);
         $this->app->bind(BasketService::class);
         $this->app->bind(OrderService::class);
+        $this->app->bind(
+            \Modules\Commerce\Services\BranchPricingService::class,
+            \Modules\Commerce\Services\BranchPricingService::class
+        );
     }
 
     public function boot(): void
@@ -27,5 +31,6 @@ class CommerceServiceProvider extends ServiceProvider
              ->prefix('api/v1')
              ->name('api.')
              ->group(__DIR__ . '/../Routes/api.php');
+
     }
 }

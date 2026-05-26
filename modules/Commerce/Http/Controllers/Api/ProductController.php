@@ -9,6 +9,7 @@ use Modules\Commerce\Models\Product;
 use Modules\Commerce\Models\ProductVariant;
 use Modules\Commerce\Services\ProductService;
 use Modules\PharmaMarketing\Services\PromotionPricingService;
+use Modules\Platform\Models\Organization;
 
 class ProductController extends Controller
 {
@@ -28,11 +29,12 @@ class ProductController extends Controller
 
         // Root org promotions → all branches see them.
         // Branch own promotions → only that branch sees them.
-        // Other branches' promotions → excluded.
-        $rootOrgId = \Modules\Platform\Models\Organization::find($orgId)?->root_org_id ?? $orgId;
-        $orgIdsForPricing = collect([$rootOrgId, $orgId])->unique()->values()->all();
+        $rootOrgId          = Organization::find($orgId)?->root_org_id ?? $orgId;
+        $orgIdsForPricing   = collect([$rootOrgId, $orgId])->unique()->values()->all();
 
-        $this->decoratePaginator($orgIdsForPricing, $paginator);
+        // Pass $orgId as requestingOrgId so branch overrides are resolved.
+        // When $orgId IS the root, the service finds no branch overrides (correct).
+        $this->decoratePaginator($orgIdsForPricing, $paginator, $orgId);
 
         return response()->json($paginator);
     }
@@ -42,11 +44,13 @@ class ProductController extends Controller
     {
         $product = $this->products->get($id);
 
-        // Use requesting org from query param to include branch-specific promotions.
-        // Falls back to $product->org_id (root) when not provided.
-        $requestingOrgId = $request->query('org_id', $product->org_id);
+        // org_id query param determines which branch prices and promotions apply.
+        $requestingOrgId  = $request->query('org_id', $product->org_id);
+        $rootOrgId        = Organization::find($requestingOrgId)?->root_org_id ?? $requestingOrgId;
+        $orgIdsForPricing = collect([$rootOrgId, $requestingOrgId])->unique()->values()->all();
 
-        $this->decorateProduct($requestingOrgId, $product);
+        $this->decorateProduct($orgIdsForPricing, $requestingOrgId, $product);
+
         return response()->json($product);
     }
 
@@ -64,17 +68,12 @@ class ProductController extends Controller
 
         $sellerActorId = $request->seller_actor_id;
         if (empty($sellerActorId)) {
-            $org           = \Modules\Platform\Models\Organization::findOrFail($orgId);
+            $org           = Organization::findOrFail($orgId);
             $sellerActorId = $org->actor_id;
         }
 
-        logger()->info('PRODUCT STORE REQUEST', $request->all());
+        $product = $this->products->create($orgId, $sellerActorId, $request->all());
 
-        $product = $this->products->create(
-            $orgId,
-            $sellerActorId,
-            $request->all()
-        );        
         return response()->json(['message' => 'Product created.', 'product' => $product], 201);
     }
 
@@ -107,16 +106,38 @@ class ProductController extends Controller
         ]);
     }
 
-    // ── Pricing injection helpers ──────────────────────────────
+    /** PATCH /api/v1/commerce/variants/{variantId} */
+    public function updateVariant(Request $request, string $variantId): JsonResponse
+    {
+        $request->validate([
+            'base_price' => ['sometimes', 'numeric', 'min:0'],
+            'currency'   => ['sometimes', 'string', 'size:3'],
+            'is_active'  => ['sometimes', 'boolean'],
+            'sku'        => ['sometimes', 'nullable', 'string', 'max:100'],
+        ]);
+
+        $variant = ProductVariant::findOrFail($variantId);
+        $variant->update($request->only(['base_price', 'currency', 'is_active', 'sku']));
+
+        return response()->json([
+            'message' => 'Variant updated.',
+            'variant' => $variant->fresh(),
+        ]);
+    }
+
+    // ── Pricing decoration helpers ─────────────────────────────────────────────
 
     /**
-     * Decorate all variants across an entire paginator in one batch query.
-     * Collects every variant from every product, runs a single pricing
-     * resolution, then writes results back onto each variant model instance.
+     * Decorate all variants in an entire paginator in one batch.
+     *
+     * @param  array       $orgIdsForPricing  [rootOrgId, requestingOrgId] for promotion scoping
+     * @param  mixed       $paginator
+     * @param  string      $requestingOrgId   The branch whose price overrides to apply
      */
     private function decoratePaginator(
-        array|string $orgIds,
-        \Illuminate\Pagination\LengthAwarePaginator $paginator
+        array  $orgIdsForPricing,
+        \Illuminate\Pagination\LengthAwarePaginator $paginator,
+        string $requestingOrgId
     ): void {
         $allVariants = $paginator->getCollection()
             ->flatMap(fn(Product $p) => $p->variants);
@@ -125,37 +146,22 @@ class ProductController extends Controller
             return;
         }
 
-        $this->pricing->decorateVariants($orgIds, $allVariants);
+        $this->pricing->decorateVariants($orgIdsForPricing, $allVariants, $requestingOrgId);
     }
 
-    private function decorateProduct(string $orgId, Product $product): void
-    {
+    /**
+     * @param  array   $orgIdsForPricing  [rootOrgId, requestingOrgId]
+     * @param  string  $requestingOrgId   Branch whose price overrides to apply
+     */
+    private function decorateProduct(
+        array   $orgIdsForPricing,
+        string  $requestingOrgId,
+        Product $product
+    ): void {
         if ($product->variants->isEmpty()) {
             return;
         }
 
-        $rootOrgId = \Modules\Platform\Models\Organization::find($orgId)?->root_org_id ?? $orgId;
-        $orgIdsForPricing = collect([$rootOrgId, $orgId])->unique()->values()->all();
-
-        $this->pricing->decorateVariants($orgIdsForPricing, $product->variants);
+        $this->pricing->decorateVariants($orgIdsForPricing, $product->variants, $requestingOrgId);
     }
-
-    /** PATCH /api/v1/commerce/variants/{variantId} */
-public function updateVariant(Request $request, string $variantId): JsonResponse
-{
-    $request->validate([
-        'base_price' => ['sometimes', 'numeric', 'min:0'],
-        'currency'   => ['sometimes', 'string', 'size:3'],
-        'is_active'  => ['sometimes', 'boolean'],
-        'sku'        => ['sometimes', 'nullable', 'string', 'max:100'],
-    ]);
-
-    $variant = ProductVariant::findOrFail($variantId);
-    $variant->update($request->only(['base_price', 'currency', 'is_active', 'sku']));
-
-    return response()->json([
-        'message' => 'Variant updated.',
-        'variant' => $variant->fresh(),
-    ]);
-}
 }

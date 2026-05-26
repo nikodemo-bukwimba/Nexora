@@ -4,32 +4,50 @@ namespace Modules\PharmaMarketing\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Modules\Commerce\Models\BranchVariantPriceOverride;
 use Modules\Commerce\Models\ProductVariant;
 
 /**
  * Resolves effective (promotion-discounted) prices for product variants.
  *
- * Rules:
- *  - A promotion is "active" when: status IN ('sending','sent')
- *    AND today is between start_date and end_date (inclusive).
- *  - Per-variant override (pm_promotion_product_overrides) takes precedence
- *    over the promotion-level discount_percentage.
- *  - When multiple active promotions cover the same variant, the highest
- *    discount wins.
- *  - base_price is NEVER mutated — effective_price is computed on the fly.
+ * Pricing resolution order (highest priority first):
+ *  1. Branch price override (branch_variant_price_overrides)  ← NEW
+ *  2. Root variant base_price
+ *  3. Active promotion discount applied on top of whichever base was resolved
+ *
+ * Promotion active conditions:
+ *  - status IN ('sending','sent')
+ *  - today is between start_date and end_date (inclusive)
+ *
+ * Per-variant promotion override (pm_promotion_product_overrides) takes
+ * precedence over the promotion-level discount_percentage.
+ *
+ * When multiple active promotions cover the same variant, the highest
+ * discount wins.
  */
 class PromotionPricingService
 {
     /**
      * Decorate a collection of ProductVariant Eloquent models (or plain
      * arrays / stdClass objects) with pricing fields:
-     *   effective_price, discount_percentage, has_promotion, promotion_id
      *
-     * For Eloquent models the fields are set as virtual attributes in-place.
-     * For arrays/objects a decorated copy is returned.
+     *   branch_price          – branch-specific base price (null = no override)
+     *   effective_base_price  – branch_price ?? base_price (before promotions)
+     *   effective_price       – after promotion discount applied on effective_base_price
+     *   discount_percentage   – promotion discount applied (null = no active promotion)
+     *   has_promotion         – bool
+     *   promotion_id          – id of winning promotion (null = none)
+     *
+     * @param  array|string   $orgIds           Org IDs for promotion scoping (root + requesting branch)
+     * @param  mixed          $variants         Collection/array of ProductVariant models or arrays
+     * @param  string|null    $requestingOrgId  The specific branch whose price overrides to load.
+     *                                          When null (root org), no branch overrides are applied.
      */
-    public function decorateVariants(array|string $orgIds, $variants): Collection
-    {
+    public function decorateVariants(
+        array|string $orgIds,
+        $variants,
+        ?string $requestingOrgId = null
+    ): Collection {
         $variants = collect($variants);
 
         if ($variants->isEmpty()) {
@@ -41,41 +59,52 @@ class PromotionPricingService
             : (is_array($v) ? $v['id'] : $v->id)
         )->all();
 
+        // ── 1. Load branch price overrides ────────────────────────────────────
+        $branchOverrides = $requestingOrgId
+            ? $this->resolveBranchOverrides($requestingOrgId, $variantIds)
+            : collect();
+
+        // ── 2. Resolve active promotion discounts ─────────────────────────────
         $activeDiscounts = $this->resolveActiveDiscounts($orgIds, $variantIds);
 
-        return $variants->map(function ($variant) use ($activeDiscounts) {
+        // ── 3. Decorate each variant ──────────────────────────────────────────
+        return $variants->map(function ($variant) use ($activeDiscounts, $branchOverrides) {
             $isModel   = $variant instanceof ProductVariant;
             $id        = $isModel ? $variant->id        : (is_array($variant) ? $variant['id']         : $variant->id);
             $basePrice = (float) ($isModel ? $variant->base_price : (is_array($variant) ? $variant['base_price'] : $variant->base_price));
 
+            // Branch override takes precedence over root base_price
+            $branchOverride  = $branchOverrides->get($id);
+            $branchPrice     = $branchOverride ? (float) $branchOverride->price : null;
+            $effectiveBase   = $branchPrice ?? $basePrice;
+
+            // Apply promotion discount on top of effective base
             $discount           = $activeDiscounts->get($id);
-            $effectivePrice     = $basePrice;
+            $effectivePrice     = $effectiveBase;
             $discountPercentage = null;
             $promotionId        = null;
 
             if ($discount) {
                 $discountPercentage = (float) $discount->discount_percentage;
-                $effectivePrice     = round($basePrice * (1 - $discountPercentage / 100), 2);
+                $effectivePrice     = round($effectiveBase * (1 - $discountPercentage / 100), 2);
                 $promotionId        = $discount->product_update_id;
             }
 
+            $pricing = [
+                'branch_price'         => $branchPrice,
+                'effective_base_price' => $effectiveBase,
+                'effective_price'      => $effectivePrice,
+                'discount_percentage'  => $discountPercentage,
+                'has_promotion'        => $discount !== null,
+                'promotion_id'         => $promotionId,
+            ];
+
             if ($isModel) {
-                // Set virtual attributes directly on the Eloquent model
-                $variant->effective_price     = $effectivePrice;
-                $variant->discount_percentage = $discountPercentage;
-                $variant->has_promotion       = $discount !== null;
-                $variant->promotion_id        = $promotionId;
+                foreach ($pricing as $key => $value) {
+                    $variant->{$key} = $value;
+                }
                 return $variant;
             }
-
-            // Plain array or stdObject — merge and return
-            $pricing = [
-                'base_price'          => $basePrice,
-                'effective_price'     => $effectivePrice,
-                'discount_percentage' => $discountPercentage,
-                'promotion_id'        => $promotionId,
-                'has_promotion'       => $discount !== null,
-            ];
 
             return is_array($variant)
                 ? array_merge($variant, $pricing)
@@ -83,7 +112,18 @@ class PromotionPricingService
         });
     }
 
-    // ── Private helpers ────────────────────────────────────────
+    // ── Private helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Load branch-level price overrides keyed by variant_id.
+     */
+    private function resolveBranchOverrides(string $orgId, array $variantIds): Collection
+    {
+        return BranchVariantPriceOverride::where('org_id', $orgId)
+            ->whereIn('variant_id', $variantIds)
+            ->get()
+            ->keyBy('variant_id');
+    }
 
     /**
      * Returns a Collection keyed by variant_id, each value being an object
@@ -96,7 +136,7 @@ class PromotionPricingService
 
         $promotions = DB::connection('pharma_marketing')
             ->table('pm_product_updates')
-            ->whereIn('org_id', (array) $orgIds)  // ← only this line changes
+            ->whereIn('org_id', (array) $orgIds)
             ->whereIn('status', ['sending', 'sent'])
             ->whereNotNull('start_date')
             ->whereNotNull('end_date')
@@ -109,7 +149,7 @@ class PromotionPricingService
             return collect();
         }
 
-        // Step 2: collect all product IDs referenced by these promotions
+        // Collect all product IDs referenced by these promotions
         $allProductIds = $promotions
             ->flatMap(fn($p) => json_decode($p->product_ids ?? '[]', true))
             ->unique()
@@ -120,7 +160,7 @@ class PromotionPricingService
             return collect();
         }
 
-        // Step 3: resolve variant_id → product_id for our batch of variants
+        // Resolve variant_id → product_id for our batch of variants
         $variantToProduct = DB::connection('commerce')
             ->table('product_variants')
             ->whereIn('product_id', $allProductIds)
@@ -131,7 +171,7 @@ class PromotionPricingService
             return collect();
         }
 
-        // Step 4: load per-variant overrides for these promotions
+        // Load per-variant promotion overrides
         $overrides = DB::connection('pharma_marketing')
             ->table('pm_promotion_product_overrides')
             ->whereIn('product_update_id', $promotions->pluck('id'))
@@ -139,7 +179,7 @@ class PromotionPricingService
             ->get()
             ->keyBy('variant_id');
 
-        // Step 5: for each variant find the best (highest) active discount
+        // For each variant find the best (highest discount) active promotion
         $best = collect();
 
         foreach ($variantToProduct as $variantId => $productId) {

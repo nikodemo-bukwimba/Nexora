@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Commerce\Http\Controllers\Api\CategoryController;
 use Modules\Commerce\Http\Controllers\Api\BasketController;
+use Modules\Commerce\Http\Controllers\Api\BranchVariantPriceController;
 use Modules\Commerce\Http\Controllers\Api\OrderController;
 use Modules\Commerce\Http\Controllers\Api\ProductController;
 
@@ -24,8 +25,12 @@ Route::middleware('auth:sanctum')->prefix('commerce')->name('commerce.')->group(
     Route::post('products/{id}/archive',       [ProductController::class, 'archive'])->name('products.archive');
 
     // ── Variants ───────────────────────────────────────────────
-    // updateVariant lives on ProductController — no separate VariantController.
     Route::patch('variants/{variantId}',       [ProductController::class, 'updateVariant'])->name('variants.update');
+
+    // ── Branch Variant Price Overrides ─────────────────────────
+    Route::get('orgs/{orgId}/branch-prices',                    [BranchVariantPriceController::class, 'index'])->name('orgs.branch-prices.index');
+    Route::put('orgs/{orgId}/variants/{variantId}/price',       [BranchVariantPriceController::class, 'upsert'])->name('orgs.variants.price.upsert');
+    Route::delete('orgs/{orgId}/variants/{variantId}/price',    [BranchVariantPriceController::class, 'destroy'])->name('orgs.variants.price.destroy');
 
     // ── Basket ─────────────────────────────────────────────────
     Route::get('orgs/{orgId}/basket',                     [BasketController::class, 'show'])->name('basket.show');
