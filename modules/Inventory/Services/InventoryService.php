@@ -125,10 +125,10 @@ class InventoryService implements InventoryServiceInterface
         string  $orgId,
         ?string $variantId = null
     ): Collection {
-        $orgIds = $this->resolveOrgScope($orgId);   // ← add this
-
+        // Exact org match — each branch deducts only from its own batches.
+        // No resolveOrgScope here: scope expansion is for list/display views only.
         return InventoryBatch::where('product_id', $productId)
-            ->whereIn('org_id', $orgIds)            // ← was where('org_id', $orgId)
+            ->where('org_id', $orgId)
             ->where('status', 'active')
             ->where('quantity_available', '>', 0)
             ->when($variantId !== null, fn($q) => $q->where('variant_id', $variantId))
@@ -139,10 +139,9 @@ class InventoryService implements InventoryServiceInterface
 
     public function getTotalStock(string $productId, string $orgId, ?string $variantId = null): int
     {
-        $orgIds = $this->resolveOrgScope($orgId);
-
+        // Also exact match for consistency with deduction.
         return InventoryBatch::where('product_id', $productId)
-            ->whereIn('org_id', $orgIds)
+            ->where('org_id', $orgId)
             ->where('status', 'active')
             ->when($variantId !== null, fn($q) => $q->where('variant_id', $variantId))
             ->sum('quantity_available');

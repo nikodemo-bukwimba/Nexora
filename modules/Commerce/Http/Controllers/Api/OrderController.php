@@ -12,7 +12,7 @@ class OrderController extends Controller
 {
     public function __construct(
         protected OrderService              $orders,
-        protected InventoryDeductionService $inventoryDeduction,  // ← injected
+        protected InventoryDeductionService $inventoryDeduction,
     ) {}
 
     public function show(string $id): JsonResponse
@@ -147,9 +147,9 @@ class OrderController extends Controller
         }
 
         // ── Resolve and validate items BEFORE the transaction ────
-        $orderItems      = [];
-        $deductionItems  = [];   // ← built alongside orderItems for inventory
-        $subtotal        = 0;
+        $orderItems     = [];
+        $deductionItems = [];
+        $subtotal       = 0;
 
         foreach ($validated['items'] as $item) {
             $variant = \Modules\Commerce\Models\ProductVariant::with('product')
@@ -187,10 +187,10 @@ class OrderController extends Controller
                 'discount_amount' => max(0, ((float) $variant->base_price - $unitPrice) * $item['quantity']),
             ];
 
-            // Carry track_inventory flag for deduction step
             $deductionItems[] = [
                 'product_id'      => $variant->product_id,
-                'variant_id'      => $variant->id,               // ← variant-level
+                'product_org_id'  => $variant->product->org_id,
+                'variant_id'      => $variant->id,
                 'variant_name'    => $variant->name,
                 'quantity'        => $item['quantity'],
                 'track_inventory' => (bool) $variant->product->track_inventory,
@@ -237,20 +237,24 @@ class OrderController extends Controller
                     $order->items()->create($item);
                 }
 
-                // ── Inventory deduction (FEFO, track_inventory-gated) ──
-                // Throws RuntimeException on insufficient stock → rolls back.
-                $this->inventoryDeduction->deductForOrder(
-                    orgId:       $orgId,
-                    orderId:     $order->id,
-                    performedBy: $sellerActorId,
-                    items:       $deductionItems,
-                );
+                // ── Inventory deduction grouped by product org (FEFO) ──
+                // Each product's stock lives under its own org_id in the
+                // inventory schema — NOT under the commerce seller org.
+                $byProductOrg = collect($deductionItems)->groupBy('product_org_id');
+
+                foreach ($byProductOrg as $inventoryOrgId => $items) {
+                    $this->inventoryDeduction->deductForOrder(
+                        orgId:       $orgId,
+                        orderId:     $order->id,
+                        performedBy: $sellerActorId,
+                        items:       $deductionItems,
+                    );
+                }
                 // ── End inventory deduction ────────────────────────────
 
                 return $order;
             });
         } catch (\RuntimeException $e) {
-            // Insufficient stock or other business rule violation
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
