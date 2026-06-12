@@ -21,6 +21,8 @@ class LogisticsServiceProvider extends ServiceProvider
         $this->app->bind(CourierService::class);
         $this->app->singleton(OrderTrackingService::class);
         $this->app->bind(DeliveryRunService::class);
+        $this->app->bind(\Modules\Logistics\Services\DeliveryNotificationService::class);
+        $this->app->bind(\Modules\Logistics\Services\DriverLocationService::class);
     }
 
     public function boot(): void

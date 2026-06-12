@@ -36,16 +36,13 @@ class GroupService
                 'added_by' => $createdBy,
             ]);
 
-            foreach ($data['participant_ids'] ?? [] as $actorId) {
-                if ($actorId === $createdBy) continue;
-                GroupParticipant::create([
-                    'group_id' => $group->id,
-                    'actor_id' => $actorId,
-                    'role'     => 'member',
-                    'status'   => 'active',
-                    'added_by' => $createdBy,
-                ]);
-            }
+        foreach ($data['participant_ids'] ?? [] as $actorId) {
+            if ($actorId === $createdBy) continue;
+            GroupParticipant::updateOrCreate(  // ← was: create
+                ['group_id' => $group->id, 'actor_id' => $actorId],
+                ['role' => 'member', 'status' => 'active', 'added_by' => $createdBy]
+            );
+        }
 
             $this->sendSystemMessage($group->id, $createdBy, 'group_created', 'Group created');
 

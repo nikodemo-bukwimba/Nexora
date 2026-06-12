@@ -28,19 +28,14 @@ use Modules\Platform\Http\Requests\Auth\ApiLoginRequest;
 use Modules\Platform\Http\Requests\Auth\ApiRegisterRequest;
 use Modules\Platform\Models\User;
 use Modules\Platform\Models\Organization;
-// ── Existing import ───────────────────────────────────────────────────────────
 use Modules\PharmaMarketing\Models\PmOfficer;
-// ── NEW ───────────────────────────────────────────────────────────────────────
 use Modules\PharmaMarketing\Models\Customer;
-// ─────────────────────────────────────────────────────────────────────────────
 
 class AuthController extends Controller
 {
     public function __construct(
         protected AuthServiceInterface $auth,
     ) {}
-
-    // ── Unchanged ─────────────────────────────────────────────────────────────
 
     public function register(ApiRegisterRequest $request): JsonResponse
     {
@@ -80,8 +75,6 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out.']);
     }
 
-    // ── CHANGED: me() ─────────────────────────────────────────────────────────
-
     public function me(Request $request): JsonResponse
     {
         $user  = $request->user()->load('actor');
@@ -100,7 +93,6 @@ class AuthController extends Controller
                 ->where('status', 'active')
                 ->get();
 
-            // Prefer branch membership over root
             $membership = $allMemberships->first(
                 fn($m) => $m->organization?->type !== 'root'
             ) ?? $allMemberships->first();
@@ -122,6 +114,12 @@ class AuthController extends Controller
         $resolvedOrgId = $membership?->org_id;
         $rootOrgId     = $org?->root_org_id ?? $resolvedOrgId;
 
+        // Fallback for users with no org membership (customer-app self-registrants).
+        if (! $rootOrgId) {
+            $rootOrgId     = $this->resolveDefaultOrgId();
+            $resolvedOrgId = $rootOrgId;
+        }
+
         // ── Resolve officer branch from pm_officers ────────────────────────
         $branchId   = null;
         $branchName = null;
@@ -138,21 +136,11 @@ class AuthController extends Controller
             }
         }
 
-        // ── NEW: Resolve customer record from pm_customers ─────────────────
-        //
-        // FIX: No cross-connection subqueries. Customer model uses pharma_marketing
-        // connection; organizations is on platform. Resolve org tree IDs in PHP first.
-        //
-        // Resolution order:
-        //   1. Look up by platform_user_id (already linked — fastest path)
-        //   2. Not found → try linkPlatformUser() by email (admin pre-created record)
-        //   3. Still not found + customer role → createFromRegistration()
-        //   4. No org or admin/officer role → skip
+        // ── Resolve customer record ────────────────────────────────────────
         $customerId    = null;
         $customerOrgId = null;
 
         if ($rootOrgId) {
-            // Resolve all org IDs in this tree using the platform connection (PHP-side)
             $treeOrgIds = \Illuminate\Support\Facades\DB::connection('platform')
                 ->table('organizations')
                 ->where('root_org_id', $rootOrgId)
@@ -160,12 +148,12 @@ class AuthController extends Controller
                 ->pluck('id')
                 ->toArray();
 
-            // Step 1: already linked — search across the whole tree using PHP array
+            // Step 1: already linked by platform_user_id
             $customer = Customer::where('platform_user_id', $user->id)
                 ->whereIn('org_id', $treeOrgIds)
                 ->first();
 
-            // Step 2: admin pre-created a customer with this email — link them
+            // Step 2: pre-created by admin/officer — link by email
             if (! $customer) {
                 $customerService = app(\Modules\PharmaMarketing\Services\CustomerService::class);
                 $customer = $customerService->linkPlatformUser(
@@ -175,7 +163,19 @@ class AuthController extends Controller
                 );
             }
 
-            // Step 3: new self-registrant with no pre-existing record
+            // Step 2b: link by username
+            if (! $customer) {
+                if (! isset($customerService)) {
+                    $customerService = app(\Modules\PharmaMarketing\Services\CustomerService::class);
+                }
+                $customer = $customerService->linkPlatformUserByUsername(
+                    orgId:          $rootOrgId,
+                    platformUserId: $user->id,
+                    username:       $user->username,
+                );
+            }
+
+            // Step 3: new self-registrant — create a customer record
             if (! $customer) {
                 $roleSlug       = $rolePayload['slug'] ?? '';
                 $isCustomerRole = in_array($roleSlug, ['customer', 'user', 'viewer', '']);
@@ -194,40 +194,87 @@ class AuthController extends Controller
                         );
                     } catch (\Throwable $e) {
                         \Illuminate\Support\Facades\Log::warning(
-                            "AuthController: createFromRegistration failed for user {$user->id}: " . $e->getMessage()
+                            "AuthController: createFromRegistration failed for user {$user->id}: "
+                            . $e->getMessage()
                         );
                     }
                 }
             }
 
+            // if ($customer) {
+            //     $customerId = $customer->id;
+
+            //     // ── Resolve effective branch for product scoping ───────────
+            //     // Priority 1: explicit home_branch_id on the customer record
+            //     // Priority 2: assigned officer's current branch_id
+            //     // Priority 3: customer's org_id (root — last resort)
+            //     if (! empty($customer->home_branch_id)) {
+            //         $customerOrgId = $customer->home_branch_id;
+            //     } elseif (! empty($customer->assigned_officer_id)) {
+            //         $officerBranch = \Illuminate\Support\Facades\DB::connection('pharma_marketing')
+            //             ->table('pm_officers')
+            //             ->where('actor_id', $customer->assigned_officer_id)
+            //             ->whereNull('deleted_at')
+            //             ->value('branch_id');
+            //         $customerOrgId = $officerBranch ?: $customer->org_id;
+            //     } else {
+            //         $customerOrgId = $customer->org_id;
+            //     }
+
+            //     // Customer branch is the source of truth for product scoping.
+            //     // Overrides any org_memberships branch the customer may have
+            //     // been assigned to (e.g. self-registrants who were later given
+            //     // a membership that points to a different branch than their
+            //     // assigned officer's branch).
+            //     $resolvedOrgId = $customerOrgId;
+            // }
+
             if ($customer) {
-                $customerId    = $customer->id;
-                $customerOrgId = $customer->org_id;
+                $customerId = $customer->id;
+
+                // Priority 1: assigned officer's current branch_id
+                // Officer transfers automatically reflected — always current branch.
+                if (! empty($customer->assigned_officer_id)) {
+                    $officerBranch = \Illuminate\Support\Facades\DB::connection('pharma_marketing')
+                        ->table('pm_officers')
+                        ->where('actor_id', $customer->assigned_officer_id)
+                        ->whereNull('deleted_at')
+                        ->value('branch_id');
+
+                    $customerOrgId = $officerBranch ?: null;
+                }
+
+                // Priority 2: explicit home_branch_id (no assigned officer)
+                if (! $customerOrgId && ! empty($customer->home_branch_id)) {
+                    $customerOrgId = $customer->home_branch_id;
+                }
+
+                // Priority 3: root org fallback
+                if (! $customerOrgId) {
+                    $customerOrgId = $rootOrgId;
+                }
             }
         }
-        // ─────────────────────────────────────────────────────────────────────
 
         return response()->json([
             'user' => [
-                'id'          => $user->id,
-                'actor_id'    => $user->actor_id,
-                'name'        => $user->actor?->display_name ?? $user->username,
-                'username'    => $user->username,
-                'email'       => $user->email,
-                'status'      => $user->status,
-                'is_active'   => $user->status === 'active',
-                'org_id'      => $resolvedOrgId,
-                'root_org_id' => $rootOrgId,
-                'org_status'  => $org?->status,
-                'org_name'    => $org?->name,
-                'branch_id'   => $branchId,
-                'branch_name' => $branchName,
-                // ── NEW: customer context ─────────────────────────────────
-                'customer_id'     => $customerId,    // pm_customers.id
-                'customer_org_id' => $customerOrgId, // branch the customer belongs to
-                // ─────────────────────────────────────────────────────────
-                'primary_role' => $rolePayload,
-                'roles'        => $rolePayload ? [$rolePayload] : [],
+                'id'             => $user->id,
+                'actor_id'       => $user->actor_id,
+                'name'           => $user->actor?->display_name ?? $user->username,
+                'username'       => $user->username,
+                'email'          => $user->email,
+                'status'         => $user->status,
+                'is_active'      => $user->status === 'active',
+                'org_id'         => $resolvedOrgId,
+                'root_org_id'    => $rootOrgId,
+                'org_status'     => $org?->status,
+                'org_name'       => $org?->name,
+                'branch_id'      => $branchId,
+                'branch_name'    => $branchName,
+                'customer_id'    => $customerId,
+                'customer_org_id'=> $customerOrgId,
+                'primary_role'   => $rolePayload,
+                'roles'          => $rolePayload ? [$rolePayload] : [],
             ],
             'permissions' => $permissions->map(fn($p) => [
                 'id'   => $p->id,
@@ -235,6 +282,16 @@ class AuthController extends Controller
                 'slug' => $p->name,
             ])->values(),
         ]);
+    }
+
+    private function resolveDefaultOrgId(): ?string
+    {
+        $flag = \Illuminate\Support\Facades\DB::connection('platform')
+            ->table('platform_feature_flags')
+            ->where('key', 'platform.default_org_id')
+            ->first();
+
+        return $flag?->description ?: null;
     }
 
     private function slugify(string $name): string

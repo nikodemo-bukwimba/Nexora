@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Platform\Traits\HasUlid;
 
 class Customer extends Model
@@ -16,54 +17,38 @@ class Customer extends Model
     protected $table      = 'pm_customers';
 
     protected $fillable = [
-        // Org & ownership
         'org_id',
         'home_branch_id',
         'assigned_officer_id',
         'platform_user_id',
+        'actor_id',              // ← added
         'registration_source',
-
-        // Core
         'customer_type',
         'name',
         'code',
         'category',
         'tier',
         'status',
-
-        // Business identity
         'business_registration',
         'tax_pin',
-
-        // Location hierarchy (Tanzania)
         'address',
         'street',
         'ward',
-        'city',     // district
-        'county',   // region
+        'city',
+        'county',
         'country',
-
-        // GPS
         'latitude',
         'longitude',
         'gps_accuracy_meters',
-
-        // Contacts
         'phone',
         'alt_phone',
         'email',
         'whatsapp_number',
-
-        // Preferences
         'receives_whatsapp',
         'receives_sms',
         'receives_in_app',
-
-        // Finance
         'credit_limit',
         'currency',
-
-        // Misc
         'notes',
         'metadata',
     ];
@@ -71,19 +56,17 @@ class Customer extends Model
     protected function casts(): array
     {
         return [
-            'receives_whatsapp'  => 'boolean',
-            'receives_sms'       => 'boolean',
-            'receives_in_app'    => 'boolean',
-            'credit_limit'       => 'decimal:4',
-            'latitude'           => 'decimal:7',
-            'longitude'          => 'decimal:7',
-            'metadata'           => 'array',
+            'receives_whatsapp' => 'boolean',
+            'receives_sms'      => 'boolean',
+            'receives_in_app'   => 'boolean',
+            'credit_limit'      => 'decimal:4',
+            'latitude'          => 'decimal:7',
+            'longitude'         => 'decimal:7',
+            'metadata'          => 'array',
         ];
     }
 
-    // ─────────────────────────────────────────────
-    // Relationships
-    // ─────────────────────────────────────────────
+    // ── Relationships ─────────────────────────────────────────
 
     public function contacts(): HasMany
     {
@@ -103,23 +86,7 @@ class Customer extends Model
             ->orderBy('check_in_at', 'desc');
     }
 
-    // ─────────────────────────────────────────────
-    // Scopes (from PmCustomer version)
-    // ─────────────────────────────────────────────
-
-    public function scopeForOrg($query, string $orgId)
-    {
-        return $query->where('org_id', $orgId);
-    }
-
-    public function scopeAssignedTo($query, string $officerId)
-    {
-        return $query->where('assigned_officer_id', $officerId);
-    }
-
-    // ─────────────────────────────────────────────
-    // Helpers (from previous Customer model)
-    // ─────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────
 
     public function isB2B(): bool
     {
@@ -129,5 +96,17 @@ class Customer extends Model
     public function isActive(): bool
     {
         return $this->status === 'active';
+    }
+
+    // ── Scopes ────────────────────────────────────────────────
+
+    public function scopeForOrg($query, string $orgId)
+    {
+        return $query->where('org_id', $orgId);
+    }
+
+    public function scopeAssignedTo($query, string $officerId)
+    {
+        return $query->where('assigned_officer_id', $officerId);
     }
 }

@@ -16,11 +16,11 @@ return [
     // Set credentials in .env once received from MobiShastra:
     //   MOBISHASTRA_USER=200XXXXX
     //   MOBISHASTRA_PASSWORD=yourpassword
-    //   MOBISHASTRA_SENDER_ID=BARICK
+    //   MOBISHASTRA_SENDER_ID=BARIKI
     'mobishastra' => [
         'user'      => env('MOBISHASTRA_USER'),
         'password'  => env('MOBISHASTRA_PASSWORD'),
-        'sender_id' => env('MOBISHASTRA_SENDER_ID', 'BARICK'),
+        'sender_id' => env('MOBISHASTRA_SENDER_ID', 'BARIKI'),
     ],
 
     // ── Visit rules ────────────────────────────────────────────

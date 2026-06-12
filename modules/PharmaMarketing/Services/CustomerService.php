@@ -21,124 +21,97 @@ class CustomerService
         protected OrgScopeResolverInterface $scope,
     ) {}
 
-    // ─────────────────────────────────────────────────────────
-    // Create Customer
-    // ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// Create Customer
+// ─────────────────────────────────────────────────────────
 
-    public function create(array $data, string $orgId): Customer
-    {
-        return DB::connection('pharma_marketing')->transaction(function () use ($data, $orgId) {
+public function create(array $data, string $orgId): Customer
+{
+    $customer = DB::connection('pharma_marketing')->transaction(function () use ($data, $orgId) {
 
-            // Always store customers under ROOT org
-            $rootOrgId = $this->scope->rootId($orgId);
-            $isBranch  = $rootOrgId !== $orgId;
+        // Always store customers under ROOT org
+        $rootOrgId = $this->scope->rootId($orgId);
+        $isBranch  = $rootOrgId !== $orgId;
 
-            $customer = Customer::create([
+        $customer = Customer::create([
+            'org_id'                => $rootOrgId,
+            'home_branch_id'        => $isBranch ? $orgId : null,
+            'assigned_officer_id'   => $data['assigned_officer_id'] ?? null,
+            'registration_source'   => $data['registration_source'] ?? 'admin',
+            'customer_type'         => $data['customer_type'] ?? 'b2b',
+            'name'                  => $data['name'],
+            'code'                  => $data['code'] ?? $this->generateCode($rootOrgId),
+            'category'              => $data['category'] ?? null,
+            'tier'                  => $data['tier'] ?? 'standard',
+            'status'                => $data['status'] ?? 'active',
+            'business_registration' => $data['business_registration'] ?? null,
+            'tax_pin'               => $data['tax_pin'] ?? null,
+            'address'               => $data['address'] ?? null,
+            'street'                => $data['street'] ?? null,
+            'ward'                  => $data['ward'] ?? null,
+            'city'                  => $data['city'] ?? null,
+            'county'                => $data['county'] ?? null,
+            'country'               => $data['country'] ?? 'TANZANIA',
+            'latitude'              => $data['latitude'] ?? null,
+            'longitude'             => $data['longitude'] ?? null,
+            'gps_accuracy_meters'   => $data['gps_accuracy_meters'] ?? null,
+            'phone'                 => $data['phone'] ?? null,
+            'alt_phone'             => $data['alt_phone'] ?? null,
+            'email'                 => $data['email'] ?? null,
+            'whatsapp_number'       => $data['whatsapp_number'] ?? null,
+            'receives_whatsapp'     => $data['receives_whatsapp'] ?? true,
+            'receives_sms'          => $data['receives_sms'] ?? true,
+            'receives_in_app'       => $data['receives_in_app'] ?? true,
+            'credit_limit'          => $data['credit_limit'] ?? 0,
+            'currency'              => $data['currency'] ?? 'TZS',
+            'notes'                 => $data['notes'] ?? null,
+            'metadata'              => $data['metadata'] ?? null,
+        ]);
 
-                // Org
-                'org_id'                => $rootOrgId,
-                'home_branch_id'        => $isBranch ? $orgId : null,
+        // ─────────────────────────────────────────────
+        // Contacts
+        // ─────────────────────────────────────────────
 
-                // Assignment
-                'assigned_officer_id'   => $data['assigned_officer_id'] ?? null,
-
-                // Registration
-                'registration_source'   => $data['registration_source'] ?? 'admin',
-
-                // Core
-                'customer_type'         => $data['customer_type'] ?? 'b2b',
-                'name'                  => $data['name'],
-                'code'                  => $data['code'] ?? $this->generateCode($rootOrgId),
-                'category'              => $data['category'] ?? null,
-                'tier'                  => $data['tier'] ?? 'standard',
-                'status'                => $data['status'] ?? 'active',
-
-                // Business
-                'business_registration' => $data['business_registration'] ?? null,
-                'tax_pin'               => $data['tax_pin'] ?? null,
-
-                // Location
-                'address'               => $data['address'] ?? null,
-                'street'                => $data['street'] ?? null,
-                'ward'                  => $data['ward'] ?? null,
-                'city'                  => $data['city'] ?? null,
-                'county'                => $data['county'] ?? null,
-                'country'               => $data['country'] ?? 'TANZANIA',
-
-                // GPS
-                'latitude'              => $data['latitude'] ?? null,
-                'longitude'             => $data['longitude'] ?? null,
-                'gps_accuracy_meters'   => $data['gps_accuracy_meters'] ?? null,
-
-                // Contacts
-                'phone'                 => $data['phone'] ?? null,
-                'alt_phone'             => $data['alt_phone'] ?? null,
-                'email'                 => $data['email'] ?? null,
-                'whatsapp_number'       => $data['whatsapp_number'] ?? null,
-
-                // Preferences
-                'receives_whatsapp'     => $data['receives_whatsapp'] ?? true,
-                'receives_sms'          => $data['receives_sms'] ?? true,
-                'receives_in_app'       => $data['receives_in_app'] ?? true,
-
-                // Finance
-                'credit_limit'          => $data['credit_limit'] ?? 0,
-                'currency'              => $data['currency'] ?? 'TZS',
-
-                // Misc
-                'notes'                 => $data['notes'] ?? null,
-                'metadata'              => $data['metadata'] ?? null,
-            ]);
-
-            // ─────────────────────────────────────────────
-            // Contacts
-            // ─────────────────────────────────────────────
-
-            if (!empty($data['contacts'])) {
-
-                foreach ($data['contacts'] as $index => $contact) {
-
-                    CustomerContact::create([
-                        'customer_id'     => $customer->id,
-                        'name'            => $contact['name'],
-                        'role'            => $contact['role'] ?? null,
-                        'phone'           => $contact['phone'] ?? null,
-                        'email'           => $contact['email'] ?? null,
-                        'whatsapp_number' => $contact['whatsapp_number'] ?? null,
-                        'is_primary'      => $contact['is_primary'] ?? ($index === 0),
-                        'notes'           => $contact['notes'] ?? null,
-                    ]);
-                }
-
-            } elseif (!empty($data['contact_name'])) {
-
-                // Flat contact support
+        if (!empty($data['contacts'])) {
+            foreach ($data['contacts'] as $index => $contact) {
                 CustomerContact::create([
-                    'customer_id' => $customer->id,
-                    'name'        => $data['contact_name'],
-                    'role'        => $data['contact_role'] ?? null,
-                    'phone'       => $data['contact_phone'] ?? null,
-                    'is_primary'  => true,
+                    'customer_id'     => $customer->id,
+                    'name'            => $contact['name'],
+                    'role'            => $contact['role'] ?? null,
+                    'phone'           => $contact['phone'] ?? null,
+                    'email'           => $contact['email'] ?? null,
+                    'whatsapp_number' => $contact['whatsapp_number'] ?? null,
+                    'is_primary'      => $contact['is_primary'] ?? ($index === 0),
+                    'notes'           => $contact['notes'] ?? null,
                 ]);
             }
+        } elseif (!empty($data['contact_name'])) {
+            CustomerContact::create([
+                'customer_id' => $customer->id,
+                'name'        => $data['contact_name'],
+                'role'        => $data['contact_role'] ?? null,
+                'phone'       => $data['contact_phone'] ?? null,
+                'is_primary'  => true,
+            ]);
+        }
 
-            // ─────────────────────────────────────────────
-            // Create app login if requested
-            // ─────────────────────────────────────────────
+        return $customer->load('contacts');
+    });
+    // ─────────────────────────────────────────────
+    // Create app login AFTER pharma transaction commits
+    // ─────────────────────────────────────────────
 
-            if (!empty($data['app_password']) && !empty($data['email'])) {
-
-                $this->createOrUpdateAppLogin(
-                    customer:  $customer,
-                    email:     $data['email'],
-                    password:  $data['app_password'],
-                    officerId: $data['assigned_officer_id'] ?? null,
-                );
-            }
-
-            return $customer->load('contacts');
-        });
+    if (!empty($data['app_password']) && !empty($data['email'])) {
+        $this->createOrUpdateAppLogin(
+            customer:  $customer,
+            email:     $data['email'],
+            password:  $data['app_password'],
+            officerId: $data['assigned_officer_id'] ?? null,
+        );
     }
+
+    return $customer;
+}
 
     // ─────────────────────────────────────────────────────────
     // List Customers
@@ -149,54 +122,22 @@ class CustomerService
         $rootOrgId = $this->scope->rootId($orgId);
 
         return Customer::where('org_id', $rootOrgId)
-
-            ->when(
-                isset($filters['customer_type']),
-                fn($q) => $q->where('customer_type', $filters['customer_type'])
-            )
-
-            ->when(
-                isset($filters['status']),
-                fn($q) => $q->where('status', $filters['status'])
-            )
-
-            ->when(
-                isset($filters['category']),
-                fn($q) => $q->where('category', $filters['category'])
-            )
-
-            ->when(
-                isset($filters['tier']),
-                fn($q) => $q->where('tier', $filters['tier'])
-            )
-
-            ->when(
-                isset($filters['officer_id']),
-                fn($q) => $q->where('assigned_officer_id', $filters['officer_id'])
-            )
-
-            ->when(
-                isset($filters['branch_id']),
-                fn($q) => $q->where('home_branch_id', $filters['branch_id'])
-            )
-
+            ->when(isset($filters['customer_type']), fn($q) => $q->where('customer_type', $filters['customer_type']))
+            ->when(isset($filters['status']),        fn($q) => $q->where('status', $filters['status']))
+            ->when(isset($filters['category']),      fn($q) => $q->where('category', $filters['category']))
+            ->when(isset($filters['tier']),          fn($q) => $q->where('tier', $filters['tier']))
+            ->when(isset($filters['officer_id']),    fn($q) => $q->where('assigned_officer_id', $filters['officer_id']))
+            ->when(isset($filters['branch_id']),     fn($q) => $q->where('home_branch_id', $filters['branch_id']))
             ->when(isset($filters['search']), function ($q) use ($filters) {
-
                 $search = $filters['search'];
-
                 $q->where(function ($qq) use ($search) {
-
-                    $qq->where('name', 'ilike', "%{$search}%")
-                        ->orWhere('phone', 'ilike', "%{$search}%")
-                        ->orWhere('code', 'ilike', "%{$search}%")
-                        ->orWhere('email', 'ilike', "%{$search}%");
+                    $qq->where('name',  'ilike', "%{$search}%")
+                       ->orWhere('phone', 'ilike', "%{$search}%")
+                       ->orWhere('code',  'ilike', "%{$search}%")
+                       ->orWhere('email', 'ilike', "%{$search}%");
                 });
             })
-
-            ->with([
-                'contacts' => fn($q) => $q->where('is_primary', true)
-            ])
-
+            ->with(['contacts' => fn($q) => $q->where('is_primary', true)])
             ->orderBy('name')
             ->paginate($perPage);
     }
@@ -221,112 +162,38 @@ class CustomerService
     {
         $customer = Customer::findOrFail($id);
 
-        return DB::connection('pharma_marketing')->transaction(function () use ($customer, $data) {
+        $updated = DB::connection('pharma_marketing')->transaction(function () use ($customer, $data) {
 
             $customer->update([
-
-                // Assignment
-                'assigned_officer_id' => $data['assigned_officer_id'] ?? $customer->assigned_officer_id,
-
-                // Core
-                'customer_type'       => $data['customer_type'] ?? $customer->customer_type,
-                'name'                => $data['name'] ?? $customer->name,
-                'code'                => $data['code'] ?? $customer->code,
-
-                'category' => array_key_exists('category', $data)
-                    ? $data['category']
-                    : $customer->category,
-
-                'tier'   => $data['tier'] ?? $customer->tier,
-                'status' => $data['status'] ?? $customer->status,
-
-                // Business
-                'business_registration' => array_key_exists('business_registration', $data)
-                    ? $data['business_registration']
-                    : $customer->business_registration,
-
-                'tax_pin' => array_key_exists('tax_pin', $data)
-                    ? $data['tax_pin']
-                    : $customer->tax_pin,
-
-                // Location
-                'address' => array_key_exists('address', $data)
-                    ? $data['address']
-                    : $customer->address,
-
-                'street' => array_key_exists('street', $data)
-                    ? $data['street']
-                    : $customer->street,
-
-                'ward' => array_key_exists('ward', $data)
-                    ? $data['ward']
-                    : $customer->ward,
-
-                'city' => array_key_exists('city', $data)
-                    ? $data['city']
-                    : $customer->city,
-
-                'county' => array_key_exists('county', $data)
-                    ? $data['county']
-                    : $customer->county,
-
-                'country' => $data['country'] ?? $customer->country,
-
-                // GPS
-                'latitude' => array_key_exists('latitude', $data)
-                    ? $data['latitude']
-                    : $customer->latitude,
-
-                'longitude' => array_key_exists('longitude', $data)
-                    ? $data['longitude']
-                    : $customer->longitude,
-
-                'gps_accuracy_meters' => array_key_exists('gps_accuracy_meters', $data)
-                    ? $data['gps_accuracy_meters']
-                    : $customer->gps_accuracy_meters,
-
-                // Contacts
-                'phone' => array_key_exists('phone', $data)
-                    ? $data['phone']
-                    : $customer->phone,
-
-                'alt_phone' => array_key_exists('alt_phone', $data)
-                    ? $data['alt_phone']
-                    : $customer->alt_phone,
-
-                'email' => array_key_exists('email', $data)
-                    ? $data['email']
-                    : $customer->email,
-
-                'whatsapp_number' => array_key_exists('whatsapp_number', $data)
-                    ? $data['whatsapp_number']
-                    : $customer->whatsapp_number,
-
-                // Preferences
-                'receives_whatsapp' => $data['receives_whatsapp']
-                    ?? $customer->receives_whatsapp,
-
-                'receives_sms' => $data['receives_sms']
-                    ?? $customer->receives_sms,
-
-                'receives_in_app' => $data['receives_in_app']
-                    ?? $customer->receives_in_app,
-
-                // Finance
-                'credit_limit' => $data['credit_limit']
-                    ?? $customer->credit_limit,
-
-                'currency' => $data['currency']
-                    ?? $customer->currency,
-
-                // Misc
-                'notes' => array_key_exists('notes', $data)
-                    ? $data['notes']
-                    : $customer->notes,
-
-                'metadata' => array_key_exists('metadata', $data)
-                    ? $data['metadata']
-                    : $customer->metadata,
+                'assigned_officer_id'   => $data['assigned_officer_id'] ?? $customer->assigned_officer_id,
+                'customer_type'         => $data['customer_type'] ?? $customer->customer_type,
+                'name'                  => $data['name'] ?? $customer->name,
+                'code'                  => $data['code'] ?? $customer->code,
+                'category'              => array_key_exists('category', $data) ? $data['category'] : $customer->category,
+                'tier'                  => $data['tier'] ?? $customer->tier,
+                'status'                => $data['status'] ?? $customer->status,
+                'business_registration' => array_key_exists('business_registration', $data) ? $data['business_registration'] : $customer->business_registration,
+                'tax_pin'               => array_key_exists('tax_pin', $data) ? $data['tax_pin'] : $customer->tax_pin,
+                'address'               => array_key_exists('address', $data) ? $data['address'] : $customer->address,
+                'street'                => array_key_exists('street', $data) ? $data['street'] : $customer->street,
+                'ward'                  => array_key_exists('ward', $data) ? $data['ward'] : $customer->ward,
+                'city'                  => array_key_exists('city', $data) ? $data['city'] : $customer->city,
+                'county'                => array_key_exists('county', $data) ? $data['county'] : $customer->county,
+                'country'               => $data['country'] ?? $customer->country,
+                'latitude'              => array_key_exists('latitude', $data) ? $data['latitude'] : $customer->latitude,
+                'longitude'             => array_key_exists('longitude', $data) ? $data['longitude'] : $customer->longitude,
+                'gps_accuracy_meters'   => array_key_exists('gps_accuracy_meters', $data) ? $data['gps_accuracy_meters'] : $customer->gps_accuracy_meters,
+                'phone'                 => array_key_exists('phone', $data) ? $data['phone'] : $customer->phone,
+                'alt_phone'             => array_key_exists('alt_phone', $data) ? $data['alt_phone'] : $customer->alt_phone,
+                'email'                 => array_key_exists('email', $data) ? $data['email'] : $customer->email,
+                'whatsapp_number'       => array_key_exists('whatsapp_number', $data) ? $data['whatsapp_number'] : $customer->whatsapp_number,
+                'receives_whatsapp'     => $data['receives_whatsapp'] ?? $customer->receives_whatsapp,
+                'receives_sms'          => $data['receives_sms'] ?? $customer->receives_sms,
+                'receives_in_app'       => $data['receives_in_app'] ?? $customer->receives_in_app,
+                'credit_limit'          => $data['credit_limit'] ?? $customer->credit_limit,
+                'currency'              => $data['currency'] ?? $customer->currency,
+                'notes'                 => array_key_exists('notes', $data) ? $data['notes'] : $customer->notes,
+                'metadata'              => array_key_exists('metadata', $data) ? $data['metadata'] : $customer->metadata,
             ]);
 
             // ─────────────────────────────────────────────
@@ -338,7 +205,6 @@ class CustomerService
                 array_key_exists('contact_phone', $data) ||
                 array_key_exists('contact_role', $data)
             ) {
-
                 $primary = CustomerContact::where('customer_id', $customer->id)
                     ->where('is_primary', true)
                     ->first();
@@ -350,53 +216,35 @@ class CustomerService
                 ];
 
                 if ($primary) {
-
                     $primary->update($contactData);
-
                 } else {
-
-                    CustomerContact::create([
-                        'customer_id' => $customer->id,
-                        'name'        => $contactData['name'],
-                        'role'        => $contactData['role'],
-                        'phone'       => $contactData['phone'],
-                        'is_primary'  => true,
-                    ]);
+                    CustomerContact::create(array_merge($contactData, ['customer_id' => $customer->id, 'is_primary' => true]));
                 }
-            }
-
-            // ─────────────────────────────────────────────
-            // Update App Password
-            // ─────────────────────────────────────────────
-
-            if (!empty($data['app_password'])) {
-
-                $this->createOrUpdateAppLogin(
-                    customer: $customer->fresh(),
-                    email: $data['email'] ?? $customer->email,
-                    password: $data['app_password'],
-                );
             }
 
             return $customer->fresh('contacts');
         });
+
+        // ── Update app login AFTER pharma transaction commits ─────────────
+        if (!empty($data['app_password'])) {
+            $this->createOrUpdateAppLogin(
+                customer: $customer->fresh(),
+                email:    $data['email'] ?? $customer->email,
+                password: $data['app_password'],
+            );
+        }
+
+        return $updated;
     }
 
     // ─────────────────────────────────────────────────────────
     // Assign Officer
     // ─────────────────────────────────────────────────────────
 
-    public function assignOfficer(
-        string $customerId,
-        string $officerActorId
-    ): Customer {
-
+    public function assignOfficer(string $customerId, string $officerActorId): Customer
+    {
         $customer = Customer::findOrFail($customerId);
-
-        $customer->update([
-            'assigned_officer_id' => $officerActorId
-        ]);
-
+        $customer->update(['assigned_officer_id' => $officerActorId]);
         return $customer->fresh();
     }
 
@@ -404,20 +252,12 @@ class CustomerService
     // Add Contact
     // ─────────────────────────────────────────────────────────
 
-    public function addContact(
-        string $customerId,
-        array $data
-    ): CustomerContact {
-
+    public function addContact(string $customerId, array $data): CustomerContact
+    {
         if ($data['is_primary'] ?? false) {
-
-            CustomerContact::where('customer_id', $customerId)
-                ->update(['is_primary' => false]);
+            CustomerContact::where('customer_id', $customerId)->update(['is_primary' => false]);
         }
-
-        return CustomerContact::create(array_merge($data, [
-            'customer_id' => $customerId,
-        ]));
+        return CustomerContact::create(array_merge($data, ['customer_id' => $customerId]));
     }
 
     // ─────────────────────────────────────────────────────────
@@ -431,15 +271,9 @@ class CustomerService
         ?string $email = null,
         ?string $phone = null,
     ): Customer {
-
         return DB::connection('pharma_marketing')->transaction(function () use (
-            $orgId,
-            $platformUserId,
-            $displayName,
-            $email,
-            $phone
+            $orgId, $platformUserId, $displayName, $email, $phone
         ) {
-
             $rootOrgId = $this->scope->rootId($orgId);
 
             $existing = Customer::where('platform_user_id', $platformUserId)
@@ -450,17 +284,20 @@ class CustomerService
                 return $existing;
             }
 
+            $platformUser = User::find($platformUserId);
+
             return Customer::create([
-                'org_id'               => $rootOrgId,
-                'platform_user_id'     => $platformUserId,
-                'registration_source'  => 'self_registered',
-                'customer_type'        => 'b2c',
-                'name'                 => $displayName,
-                'code'                 => $this->generateCode($rootOrgId),
-                'email'                => $email,
-                'phone'                => $phone,
-                'status'               => 'active',
-                'tier'                 => 'standard',
+                'org_id'              => $rootOrgId,
+                'platform_user_id'    => $platformUserId,
+                'actor_id'            => $platformUser?->actor_id,
+                'registration_source' => 'self_registered',
+                'customer_type'       => 'b2c',
+                'name'                => $displayName,
+                'code'                => $this->generateCode($rootOrgId),
+                'email'               => $email,
+                'phone'               => $phone,
+                'status'              => 'active',
+                'tier'                => 'standard',
             ]);
         });
     }
@@ -469,12 +306,8 @@ class CustomerService
     // Link Existing Customer To Platform User
     // ─────────────────────────────────────────────────────────
 
-    public function linkPlatformUser(
-        string $orgId,
-        string $platformUserId,
-        string $email
-    ): ?Customer {
-
+    public function linkPlatformUser(string $orgId, string $platformUserId, string $email): ?Customer
+    {
         $rootOrgId = $this->scope->rootId($orgId);
 
         $customer = Customer::where('org_id', $rootOrgId)
@@ -483,12 +316,44 @@ class CustomerService
             ->first();
 
         if ($customer) {
-
+            $platformUser = User::find($platformUserId);
             $customer->update([
                 'platform_user_id'    => $platformUserId,
+                'actor_id'            => $platformUser?->actor_id,
                 'registration_source' => 'self_registered',
             ]);
+            return $customer->fresh();
+        }
 
+        return null;
+    }
+
+    public function linkPlatformUserByUsername(
+        string $orgId,
+        string $platformUserId,
+        string $username,
+    ): ?Customer {
+        $rootOrgId = $this->scope->rootId($orgId);
+
+        $parts  = explode('_', $username);
+        $suffix = end($parts);
+
+        if (strlen($suffix) < 4) {
+            return null;
+        }
+
+        $customer = Customer::where('org_id', $rootOrgId)
+            ->whereNull('platform_user_id')
+            ->whereRaw('RIGHT(id::text, 4) = ?', [strtoupper(substr($suffix, -4))])
+            ->first();
+
+        if ($customer) {
+            $platformUser = User::find($platformUserId);
+            $customer->update([
+                'platform_user_id'    => $platformUserId,
+                'actor_id'            => $platformUser?->actor_id,
+                'registration_source' => 'self_registered',
+            ]);
             return $customer->fresh();
         }
 
@@ -527,81 +392,102 @@ class CustomerService
     ): void {
 
         if (empty($email)) {
+            \Illuminate\Support\Facades\Log::warning('createOrUpdateAppLogin: email is empty, skipping', [
+                'customer_id' => $customer->id,
+            ]);
             return;
         }
+
+        \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: starting', [
+            'customer_id'  => $customer->id,
+            'email'        => $email,
+            'password_len' => strlen($password),
+        ]);
 
         $existing = User::where('email', $email)->first();
 
         if ($existing) {
+            \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: existing user found, updating password', [
+                'user_id' => $existing->id,
+            ]);
 
             $existing->forceFill([
-                'password' => $password,
+                'password' => \Illuminate\Support\Facades\Hash::make($password),
             ])->save();
 
             if (!$customer->platform_user_id) {
-
-                $customer->update([
-                    'platform_user_id' => $existing->id,
-                ]);
+                $customer->update(['platform_user_id' => $existing->id]);
             }
 
             return;
         }
 
-        // Create username
-        $username = preg_replace(
-            '/[^a-zA-Z0-9_]/',
-            '_',
-            explode('@', $email)[0]
-        );
+        $username = strtolower(
+            preg_replace('/[^a-zA-Z0-9_]/', '_', explode('@', $email)[0])
+        ) . '_' . substr($customer->id, -4);
 
-        $username = strtolower($username)
-            . '_'
-            . substr($customer->id, -4);
+        \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: no existing user, creating new', [
+            'email'    => $email,
+            'username' => $username,
+        ]);
 
-        DB::connection('platform')->transaction(function () use (
-            $customer,
-            $email,
-            $password,
-            $username
-        ) {
+        try {
+            DB::connection('platform')->transaction(function () use ($customer, $email, $password, $username) {
 
-            $actor = $this->actors->create([
-                'display_name' => $customer->name,
-                'status'       => 'active',
-            ]);
-
-            $user = $this->users->create([
-                'username' => $username,
-                'email'    => $email,
-                'password' => $password,
-                'actor_id' => $actor->id,
-                'status'   => 'active',
-            ]);
-
-            $this->actors->assignType(
-                $actor->id,
-                'user'
-            );
-
-            // Default tier
-            $defaultTier = PlatformTier::where('is_default', true)
-                ->where('is_active', true)
-                ->first();
-
-            if ($defaultTier) {
-
-                UserTierAssignment::create([
-                    'user_id'     => $user->id,
-                    'tier_id'     => $defaultTier->id,
-                    'assigned_by' => null,
-                    'status'      => 'active',
+                $actor = $this->actors->create([
+                    'display_name' => $customer->name,
+                    'status'       => 'active',
                 ]);
-            }
 
-            $customer->update([
-                'platform_user_id' => $user->id,
+                \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: actor created', [
+                    'actor_id' => $actor->id,
+                ]);
+
+                $user = $this->users->create([
+                    'username' => $username,
+                    'email'    => $email,
+                    'password' => $password,
+                    'actor_id' => $actor->id,
+                    'status'   => 'active',
+                ]);
+
+                \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: user created', [
+                    'user_id'    => $user->id,
+                    'pwd_prefix' => substr($user->password, 0, 10),
+                ]);
+
+                $this->actors->assignType($actor->id, 'user');
+
+                $defaultTier = PlatformTier::where('is_default', true)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($defaultTier) {
+                    UserTierAssignment::create([
+                        'user_id'     => $user->id,
+                        'tier_id'     => $defaultTier->id,
+                        'assigned_by' => null,
+                        'status'      => 'active',
+                    ]);
+                }
+
+                $customer->update([
+                    'platform_user_id' => $user->id,
+                    'actor_id'         => $actor->id,
+                ]);
+
+                \Illuminate\Support\Facades\Log::info('createOrUpdateAppLogin: completed successfully', [
+                    'user_id'     => $user->id,
+                    'customer_id' => $customer->id,
+                ]);
+            });
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('createOrUpdateAppLogin: FAILED', [
+                'customer_id' => $customer->id,
+                'email'       => $email,
+                'error'       => $e->getMessage(),
+                'trace'       => $e->getTraceAsString(),
             ]);
-        });
+        }
     }
 }

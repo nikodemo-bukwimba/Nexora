@@ -14,9 +14,17 @@ class GroupController extends Controller
     /** POST /api/v1/communications/groups */
     public function store(Request $request): JsonResponse
     {
-        $request->validate(['name' => ['required', 'string', 'max:255']]);
-        $group = $this->groups->create($request->user()->actor_id, $request->all());
-        return response()->json(['message' => 'Group created.', 'group' => $group], 201);
+        try {
+            $request->validate(['name' => ['required', 'string', 'max:255']]);
+            $group = $this->groups->create($request->user()->actor_id, $request->all());
+            return response()->json(['message' => 'Group created.', 'group' => $group], 201);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+            ], 500);
+        }
     }
 
     /** GET /api/v1/communications/groups/{id} */

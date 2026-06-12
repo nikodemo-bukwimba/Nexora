@@ -141,26 +141,37 @@ class WeeklyPlanService
         return $plan->fresh(['items']);
     }
 
-    public function approve(string $planId, string $headOfficerActorId): WeeklyPlan
+    public function approve(string $reportId, string $reviewerActorId, ?string $notes): DailyReport
     {
-        $plan = WeeklyPlan::where('status', 'submitted')->findOrFail($planId);
-        $plan->update([
-            'status'      => 'approved',
-            'approved_by' => $headOfficerActorId,
-            'approved_at' => now(),
+        // BEFORE: ->where('status', 'submitted')->findOrFail($reportId)
+        // AFTER:  allow re-decision from approved or rejected too
+        $report = DailyReport::whereIn('status', ['submitted', 'approved', 'rejected'])
+            ->findOrFail($reportId);
+
+        $report->update([
+            'status'       => 'approved',
+            'reviewed_by'  => $reviewerActorId,
+            'reviewed_at'  => now(),
+            'review_notes' => $notes,
         ]);
-        return $plan->fresh(['items']);
+
+        return $report->fresh();
     }
 
-    public function reject(string $planId, string $headOfficerActorId, string $reason): WeeklyPlan
+    public function reject(string $reportId, string $reviewerActorId, string $notes): DailyReport
     {
-        $plan = WeeklyPlan::where('status', 'submitted')->findOrFail($planId);
-        $plan->update([
-            'status'           => 'rejected',
-            'approved_by'      => $headOfficerActorId,
-            'rejected_at'      => now(),
-            'rejection_reason' => $reason,
+        // BEFORE: ->where('status', 'submitted')->findOrFail($reportId)
+        // AFTER:  allow re-decision from approved or rejected too
+        $report = DailyReport::whereIn('status', ['submitted', 'approved', 'rejected'])
+            ->findOrFail($reportId);
+
+        $report->update([
+            'status'       => 'rejected',
+            'reviewed_by'  => $reviewerActorId,
+            'reviewed_at'  => now(),
+            'review_notes' => $notes,
         ]);
-        return $plan->fresh(['items']);
+
+        return $report->fresh();
     }
 }

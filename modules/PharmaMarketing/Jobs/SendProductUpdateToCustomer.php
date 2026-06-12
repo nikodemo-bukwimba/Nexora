@@ -36,29 +36,49 @@ class SendProductUpdateToCustomer implements ShouldQueue
         };
     }
 
-    // ── SMS / WhatsApp via MobiShastra Push API ────────────────
+    // ── SMS / WhatsApp via MobiShastra Single Push API ─────────
+    //
+    // Uses sendurl.aspx (single number endpoint) — not sendurlcomma.aspx
+    // which is for comma-separated multiple numbers in one call.
 
     private function sendViaMobiShastra(): void
     {
         $user     = config('pharma_marketing.mobishastra.user');
         $pwd      = config('pharma_marketing.mobishastra.password');
-        $senderId = config('pharma_marketing.mobishastra.sender_id', 'BARICK');
+        $senderId = config('pharma_marketing.mobishastra.sender_id', 'BARIKI');
 
-        if (!$user || !$pwd) {
-            $this->markFailed('MobiShastra credentials not configured.');
+        if (empty($user) || empty($pwd)) {
+            $this->markFailed('MobiShastra credentials not configured. Set MOBISHASTRA_USER and MOBISHASTRA_PASSWORD in .env');
             return;
         }
 
         $mobile = $this->delivery->recipient_address;
-        if (!$mobile) {
+        if (empty($mobile)) {
             $this->markFailed('No recipient phone number.');
             return;
         }
 
-        $message = $this->buildSmsMessage();
+        // Strip non-numeric characters; MobiShastra accepts +255XXXXXXXXX format
+        // Normalise any Tanzanian number format to 255XXXXXXXXX
+        $mobile = preg_replace('/[^0-9]/', '', $mobile); // strip ALL non-digits (removes + sign too)
+
+        if (str_starts_with($mobile, '255') && strlen($mobile) === 12) {
+            // Already correct: 255784977960
+        } elseif (str_starts_with($mobile, '0') && strlen($mobile) === 10) {
+            // Local format: 0784977960 → 255784977960
+            $mobile = '255' . substr($mobile, 1);
+        } elseif (!str_starts_with($mobile, '255') && strlen($mobile) === 9) {
+            // Missing leading zero and country code: 784977960 → 255784977960
+            $mobile = '255' . $mobile;
+        } else {
+            // Unrecognisable format — fail this delivery cleanly
+            $this->markFailed("Unrecognised phone format after normalisation: {$mobile}");
+            return;
+        }
 
         try {
-            $response = Http::timeout(15)->get('https://mshastra.com/sendurlcomma.aspx', [
+            // Use sendurl.aspx for single number delivery
+            $response = Http::timeout(15)->get('https://mshastra.com/sendurl.aspx', [
                 'user'        => $user,
                 'pwd'         => $pwd,
                 'senderid'    => $senderId,
@@ -70,7 +90,7 @@ class SendProductUpdateToCustomer implements ShouldQueue
 
             $body = trim($response->body());
 
-            // MobiShastra returns "Send Successful" in body on success
+            // MobiShastra success: body contains "Send Successful"
             if (str_contains($body, 'Send Successful')) {
                 $this->delivery->update([
                     'status'              => 'sent',
@@ -78,27 +98,25 @@ class SendProductUpdateToCustomer implements ShouldQueue
                     'sent_at'             => now(),
                 ]);
                 $this->update->increment('sent_count');
+
+                // Mark the parent update as fully sent when all deliveries are done
+                $this->checkAndMarkUpdateComplete();
+
             } else {
                 $this->markFailed($body ?: 'Unknown MobiShastra error');
             }
+
         } catch (\Throwable $e) {
             Log::warning('MobiShastra SMS failed', [
                 'delivery_id' => $this->delivery->id,
+                'mobile'      => $mobile,
                 'error'       => $e->getMessage(),
             ]);
             $this->markFailed($e->getMessage());
         }
     }
 
-    // ── Build fixed SMS template ───────────────────────────────
-    //
-    //  Dear {customer_name},
-    //  {OrgName} has an update for you:
-    //
-    //  Products: Product A, Product B, Product C
-    //  Discount: 20% OFF          ← only when discount_percentage is set
-    //
-    //  Visit us or contact your representative.
+    // ── SMS message template ───────────────────────────────────
 
     private function buildSmsMessage(): string
     {
@@ -107,7 +125,7 @@ class SendProductUpdateToCustomer implements ShouldQueue
         $productNames = $this->resolveProductNames();
         $discount     = $this->update->discount_percentage;
 
-        $productLine  = !empty($productNames)
+        $productLine = !empty($productNames)
             ? 'Products: ' . implode(', ', $productNames)
             : 'New products available';
 
@@ -122,8 +140,6 @@ class SendProductUpdateToCustomer implements ShouldQueue
              . "Visit us or contact your representative.";
     }
 
-    // ── Resolve product names from product_ids ─────────────────
-
     private function resolveProductNames(): array
     {
         $ids = $this->update->product_ids ?? [];
@@ -132,14 +148,12 @@ class SendProductUpdateToCustomer implements ShouldQueue
             return [];
         }
 
-        return DB::connection('commerce')
-            ->table('products')
+        return DB::connection('pharma_marketing')
+            ->table('pm_products')
             ->whereIn('id', $ids)
             ->pluck('name')
             ->toArray();
     }
-
-    // ── Resolve org name ───────────────────────────────────────
 
     private function resolveOrgName(): string
     {
@@ -149,7 +163,7 @@ class SendProductUpdateToCustomer implements ShouldQueue
             ->value('name') ?? 'Bariki Pharmacy';
     }
 
-    // ── In-app delivery (no external call needed) ──────────────
+    // ── In-app delivery ────────────────────────────────────────
 
     private function markInAppSent(): void
     {
@@ -158,6 +172,31 @@ class SendProductUpdateToCustomer implements ShouldQueue
             'sent_at' => now(),
         ]);
         $this->update->increment('sent_count');
+        $this->checkAndMarkUpdateComplete();
+    }
+
+    // ── Mark update as fully sent when all deliveries complete ─
+
+    private function checkAndMarkUpdateComplete(): void
+    {
+        $total   = $this->update->total_recipients ?? 0;
+        $sent    = (int) DB::connection('pharma_marketing')
+            ->table('pm_product_update_deliveries')
+            ->where('product_update_id', $this->update->id)
+            ->where('status', 'sent')
+            ->count();
+        $failed  = (int) DB::connection('pharma_marketing')
+            ->table('pm_product_update_deliveries')
+            ->where('product_update_id', $this->update->id)
+            ->where('status', 'failed')
+            ->count();
+
+        if ($total > 0 && ($sent + $failed) >= $total) {
+            $this->update->update([
+                'status'       => 'sent',
+                'failed_count' => $failed,
+            ]);
+        }
     }
 
     // ── Helpers ────────────────────────────────────────────────

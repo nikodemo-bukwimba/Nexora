@@ -147,6 +147,9 @@ class DeliveryRunService
 
             $stop->update($updates);
 
+            app(\Modules\Logistics\Services\DeliveryNotificationService::class)
+            ->notifyStopStatusChange($stop->fresh(), $newStatus);
+
             // Immutable status log entry
             StopStatusLog::create([
                 'stop_id'     => $stopId,

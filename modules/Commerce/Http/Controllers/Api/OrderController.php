@@ -7,12 +7,14 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Commerce\Services\InventoryDeductionService;
 use Modules\Commerce\Services\OrderService;
+use Modules\Notifications\Services\NotificationService;
 
 class OrderController extends Controller
 {
     public function __construct(
         protected OrderService              $orders,
         protected InventoryDeductionService $inventoryDeduction,
+        protected NotificationService       $notifications,
     ) {}
 
     public function show(string $id): JsonResponse
@@ -36,44 +38,9 @@ class OrderController extends Controller
         );
     }
 
-    public function confirm(string $id): JsonResponse
-    {
-        return response()->json(['message' => 'Order confirmed.', 'order' => $this->orders->confirm($id)]);
-    }
-
     public function markProcessing(string $id): JsonResponse
     {
         return response()->json(['message' => 'Order processing.', 'order' => $this->orders->markProcessing($id)]);
-    }
-
-    public function ship(Request $request, string $id): JsonResponse
-    {
-        $request->validate(['carrier' => ['nullable', 'string'], 'tracking_number' => ['nullable', 'string']]);
-        return response()->json(['message' => 'Order shipped.', 'order' => $this->orders->ship($id, $request->all())]);
-    }
-
-    public function deliver(string $id): JsonResponse
-    {
-        return response()->json(['message' => 'Order delivered.', 'order' => $this->orders->deliver($id)]);
-    }
-
-    public function cancel(Request $request, string $id): JsonResponse
-    {
-        return response()->json(['message' => 'Order cancelled.', 'order' => $this->orders->cancel($id, $request->user()->actor_id)]);
-    }
-
-    public function requestReturn(Request $request, string $id): JsonResponse
-    {
-        $request->validate(['reason' => ['required', 'string', 'min:10']]);
-        $return = $this->orders->requestReturn($id, $request->user()->actor_id, $request->reason);
-        return response()->json(['message' => 'Return requested.', 'return' => $return], 201);
-    }
-
-    public function approveReturn(Request $request, string $id, string $returnId): JsonResponse
-    {
-        $request->validate(['resolution' => ['required', 'string', 'in:refund,replacement,store_credit']]);
-        $return = $this->orders->approveReturn($returnId, $request->user()->actor_id, $request->resolution, $request->refund_amount ?? null);
-        return response()->json(['message' => 'Return approved.', 'return' => $return]);
     }
 
     /**
@@ -238,8 +205,6 @@ class OrderController extends Controller
                 }
 
                 // ── Inventory deduction grouped by product org (FEFO) ──
-                // Each product's stock lives under its own org_id in the
-                // inventory schema — NOT under the commerce seller org.
                 $byProductOrg = collect($deductionItems)->groupBy('product_org_id');
 
                 foreach ($byProductOrg as $inventoryOrgId => $items) {
@@ -250,12 +215,23 @@ class OrderController extends Controller
                         items:       $deductionItems,
                     );
                 }
-                // ── End inventory deduction ────────────────────────────
 
                 return $order;
             });
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        if ($buyerActorId) {
+            $this->notifications->send(
+                actorId:   $buyerActorId,
+                type:      'order.placed',
+                title:     'Order received',
+                body:      "Your order #{$order->order_number} has been placed and is being prepared.",
+                refType:   'order',
+                refId:     $order->id,
+                data:      ['order_number' => $order->order_number, 'total' => $order->total],
+            );
         }
 
         return response()->json([
@@ -264,15 +240,81 @@ class OrderController extends Controller
         ], 201);
     }
 
-    private function generateOrderNumber(): string
+    public function confirm(string $id): JsonResponse
     {
-        $year  = now()->format('Y');
-        $count = \DB::connection('commerce')
-            ->table('orders')
-            ->whereYear('created_at', $year)
-            ->count();
-        $unique = strtoupper(substr(uniqid(), -4));
-        return sprintf('ORD-%s-%06d-%s', $year, $count + 1, $unique);
+        $order = $this->orders->confirm($id);
+
+        if ($order->buyer_actor_id) {
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.confirmed',
+                title:   'Order confirmed',
+                body:    "Your order #{$order->order_number} has been confirmed.",
+                refType: 'order',
+                refId:   $order->id,
+            );
+        }
+
+        return response()->json(['message' => 'Order confirmed.', 'order' => $order]);
+    }
+
+    public function ship(Request $request, string $id): JsonResponse
+    {
+        $request->validate(['carrier' => ['nullable', 'string'], 'tracking_number' => ['nullable', 'string']]);
+        $order = $this->orders->ship($id, $request->all());
+
+        if ($order->buyer_actor_id) {
+            $tracking = $request->tracking_number
+                ? " Tracking: {$request->tracking_number}."
+                : '';
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.shipped',
+                title:   'Order shipped',
+                body:    "Your order #{$order->order_number} is on its way.{$tracking}",
+                refType: 'order',
+                refId:   $order->id,
+                data:    ['tracking_number' => $request->tracking_number, 'carrier' => $request->carrier],
+            );
+        }
+
+        return response()->json(['message' => 'Order shipped.', 'order' => $order]);
+    }
+
+    public function deliver(string $id): JsonResponse
+    {
+        $order = $this->orders->deliver($id);
+
+        if ($order->buyer_actor_id) {
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.delivered',
+                title:   'Order delivered',
+                body:    "Your order #{$order->order_number} has been delivered. Thank you!",
+                refType: 'order',
+                refId:   $order->id,
+            );
+        }
+
+        return response()->json(['message' => 'Order delivered.', 'order' => $order]);
+    }
+
+    public function cancel(Request $request, string $id): JsonResponse
+    {
+        $order = $this->orders->cancel($id, $request->user()->actor_id);
+
+        if ($order->buyer_actor_id) {
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.cancelled',
+                title:   'Order cancelled',
+                body:    "Your order #{$order->order_number} has been cancelled.",
+                refType: 'order',
+                refId:   $order->id,
+            );
+        }
+
+        return response()->json(['message' => 'Order cancelled.', 'order' => $order]);
     }
 
     public function markPaid(Request $request, string $id): JsonResponse
@@ -293,12 +335,79 @@ class OrderController extends Controller
         if (isset($validated['payment_ref'])) {
             $meta['payment_ref'] = $validated['payment_ref'];
         }
-
         $order->update(['metadata' => $meta]);
+
+        if ($validated['payment_status'] === 'paid' && $order->buyer_actor_id) {
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'payment.confirmed',
+                title:   'Payment confirmed',
+                body:    "Payment for order #{$order->order_number} has been confirmed.",
+                refType: 'order',
+                refId:   $order->id,
+            );
+        }
 
         return response()->json([
             'message' => 'Payment status updated.',
             'order'   => $order->fresh(),
         ]);
+    }
+
+    public function requestReturn(Request $request, string $id): JsonResponse
+    {
+        $request->validate(['reason' => ['required', 'string', 'min:10']]);
+        $return = $this->orders->requestReturn($id, $request->user()->actor_id, $request->reason);
+
+        $order = \Modules\Commerce\Models\Order::find($id);
+        if ($order?->buyer_actor_id) {
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.return_requested',
+                title:   'Return request received',
+                body:    "Your return request for order #{$order->order_number} has been received and is under review.",
+                refType: 'order',
+                refId:   $id,
+            );
+        }
+
+        return response()->json(['message' => 'Return requested.', 'return' => $return], 201);
+    }
+
+    public function approveReturn(Request $request, string $id, string $returnId): JsonResponse
+    {
+        $request->validate(['resolution' => ['required', 'string', 'in:refund,replacement,store_credit']]);
+        $return = $this->orders->approveReturn($returnId, $request->user()->actor_id, $request->resolution, $request->refund_amount ?? null);
+
+        $order = \Modules\Commerce\Models\Order::find($id);
+        if ($order?->buyer_actor_id) {
+            $resolution = match ($request->resolution) {
+                'refund'       => 'a refund',
+                'replacement'  => 'a replacement',
+                'store_credit' => 'store credit',
+                default        => $request->resolution,
+            };
+            $this->notifications->send(
+                actorId: $order->buyer_actor_id,
+                type:    'order.return_approved',
+                title:   'Return approved',
+                body:    "Your return for order #{$order->order_number} has been approved. Resolution: {$resolution}.",
+                refType: 'order',
+                refId:   $id,
+            );
+        }
+
+        return response()->json(['message' => 'Return approved.', 'return' => $return]);
+    }
+
+    private function generateOrderNumber(): string
+    {
+        $year  = now()->format('Y');
+        $count = \DB::connection('commerce')
+            ->table('orders')
+            ->whereYear('created_at', $year)
+            ->count();
+        $unique = strtoupper(substr(uniqid(), -4));
+        return sprintf('ORD-%s-%06d-%s', $year, $count + 1, $unique);
     }
 }

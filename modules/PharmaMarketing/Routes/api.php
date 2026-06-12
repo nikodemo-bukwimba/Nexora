@@ -13,6 +13,7 @@ use Modules\PharmaMarketing\Http\Controllers\Api\WeeklyPlanController;
 Route::middleware('auth:sanctum')->prefix('pharma')->name('pharma.')->group(function () {
 
     // ── Customers ──────────────────────────────────────────────
+    Route::get('customers/me/contacts', [CustomerController::class, 'myContacts'])->name('customers.me.contacts');
     Route::get('orgs/{orgId}/customers',              [CustomerController::class, 'index'])->name('customers.index');
     Route::post('orgs/{orgId}/customers',             [CustomerController::class, 'store'])->name('customers.store');
     Route::get('customers/{id}',                      [CustomerController::class, 'show'])->name('customers.show');

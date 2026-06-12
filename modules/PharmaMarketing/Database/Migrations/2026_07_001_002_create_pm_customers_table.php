@@ -13,21 +13,6 @@ return new class extends Migration
         Schema::connection('pharma_marketing')->create('pm_customers', function (Blueprint $table) {
             $table->char('id', 26)->primary();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Organization Ownership
-            |--------------------------------------------------------------------------
-            | org_id:
-            |     Root organization / tenant owner.
-            |
-            | home_branch_id:
-            |     Original or primary branch associated with the customer.
-            |
-            | assigned_officer_id:
-            |     Marketing/sales officer responsible for the customer.
-            |--------------------------------------------------------------------------
-            */
-
             $table->char('org_id', 26)->index();
 
             $table->char('home_branch_id', 26)
@@ -42,24 +27,17 @@ return new class extends Migration
                 ->nullable()
                 ->index();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Registration
-            |--------------------------------------------------------------------------
-            */
+            // Actor ID — the platform actor linked to this customer's user account.
+            // Populated from platform.users.actor_id via platform_user_id.
+            // Used for communications (DM recipient_actor_id).
+            $table->char('actor_id', 26)
+                ->nullable()
+                ->index();
 
-            // admin | self | import
             $table->string('registration_source', 30)
                 ->default('admin')
                 ->index();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Customer Identity
-            |--------------------------------------------------------------------------
-            */
-
-            // b2b | b2c | hospital | pharmacy | wholesaler etc
             $table->string('customer_type', 50)
                 ->default('b2b')
                 ->index();
@@ -77,16 +55,9 @@ return new class extends Migration
                 ->default('standard')
                 ->index();
 
-            // active | inactive | blocked | archived
             $table->string('status', 50)
                 ->default('active')
                 ->index();
-
-            /*
-            |--------------------------------------------------------------------------
-            | Business Details
-            |--------------------------------------------------------------------------
-            */
 
             $table->string('business_registration', 100)
                 ->nullable();
@@ -94,17 +65,8 @@ return new class extends Migration
             $table->string('tax_pin', 100)
                 ->nullable();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Location
-            |--------------------------------------------------------------------------
-            */
-
             $table->text('address')
                 ->nullable();
-
-            // Tanzania hierarchy:
-            // country -> region(county) -> district(city) -> ward -> street
 
             $table->string('county', 100)
                 ->nullable();
@@ -130,12 +92,6 @@ return new class extends Migration
             $table->integer('gps_accuracy_meters')
                 ->nullable();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Contact Information
-            |--------------------------------------------------------------------------
-            */
-
             $table->string('phone', 30)
                 ->nullable();
 
@@ -148,12 +104,6 @@ return new class extends Migration
             $table->string('whatsapp_number', 30)
                 ->nullable();
 
-            /*
-            |--------------------------------------------------------------------------
-            | Communication Preferences
-            |--------------------------------------------------------------------------
-            */
-
             $table->boolean('receives_whatsapp')
                 ->default(true);
 
@@ -163,23 +113,11 @@ return new class extends Migration
             $table->boolean('receives_in_app')
                 ->default(true);
 
-            /*
-            |--------------------------------------------------------------------------
-            | Financial
-            |--------------------------------------------------------------------------
-            */
-
             $table->decimal('credit_limit', 15, 4)
                 ->default(0);
 
             $table->char('currency', 3)
                 ->default('TZS');
-
-            /*
-            |--------------------------------------------------------------------------
-            | Extra Data
-            |--------------------------------------------------------------------------
-            */
 
             $table->text('notes')
                 ->nullable();
@@ -189,15 +127,6 @@ return new class extends Migration
 
             $table->timestamps();
             $table->softDeletes();
-
-            /*
-            |--------------------------------------------------------------------------
-            | Constraints
-            |--------------------------------------------------------------------------
-            |
-            | Customer codes are branch-scoped within a root organization.
-            |--------------------------------------------------------------------------
-            */
 
             $table->unique([
                 'org_id',

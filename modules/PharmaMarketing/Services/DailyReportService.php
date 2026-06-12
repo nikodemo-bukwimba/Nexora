@@ -70,29 +70,41 @@ class DailyReportService
         return $report->fresh();
     }
 
-    public function approve(string $reportId, string $reviewerActorId, ?string $notes): DailyReport
-    {
-        $report = DailyReport::where('status', 'submitted')->findOrFail($reportId);
-        $report->update([
-            'status'       => 'approved',
-            'reviewed_by'  => $reviewerActorId,
-            'reviewed_at'  => now(),
-            'review_notes' => $notes,
-        ]);
-        return $report->fresh();
-    }
+    // In: Modules\PharmaMarketing\Services\DailyReportService
 
-    public function reject(string $reportId, string $reviewerActorId, string $notes): DailyReport
-    {
-        $report = DailyReport::where('status', 'submitted')->findOrFail($reportId);
-        $report->update([
-            'status'       => 'rejected',
-            'reviewed_by'  => $reviewerActorId,
-            'reviewed_at'  => now(),
-            'review_notes' => $notes,
-        ]);
-        return $report->fresh();
-    }
+        public function approve(string $reportId, string $reviewerActorId, ?string $notes): DailyReport
+        {
+            // BEFORE: ->where('status', 'submitted')->findOrFail($reportId)
+            // AFTER:  allow re-decision from approved or rejected too
+            $report = DailyReport::whereIn('status', ['submitted', 'approved', 'rejected'])
+                ->findOrFail($reportId);
+
+            $report->update([
+                'status'       => 'approved',
+                'reviewed_by'  => $reviewerActorId,
+                'reviewed_at'  => now(),
+                'review_notes' => $notes,
+            ]);
+
+            return $report->fresh();
+        }
+
+        public function reject(string $reportId, string $reviewerActorId, string $notes): DailyReport
+        {
+            // BEFORE: ->where('status', 'submitted')->findOrFail($reportId)
+            // AFTER:  allow re-decision from approved or rejected too
+            $report = DailyReport::whereIn('status', ['submitted', 'approved', 'rejected'])
+                ->findOrFail($reportId);
+
+            $report->update([
+                'status'       => 'rejected',
+                'reviewed_by'  => $reviewerActorId,
+                'reviewed_at'  => now(),
+                'review_notes' => $notes,
+            ]);
+
+            return $report->fresh();
+        }
 
     /**
      * List reports with org-tree awareness.
