@@ -107,42 +107,52 @@ class GroupService
         return $participant->fresh();
     }
 
-    public function send(string $groupId, string $senderActorId, array $data): array
-    {
-        $group = Group::findOrFail($groupId);
+public function send(string $groupId, string $senderActorId, array $data): array
+{
+    $group = Group::findOrFail($groupId);
 
-        if (! $group->hasParticipant($senderActorId)) {
-            throw new \RuntimeException('You are not a participant of this group.');
-        }
-
-        if ($group->only_admins_can_message && ! $group->isAdmin($senderActorId)) {
-            throw new \RuntimeException('Only admins can send messages in this group.');
-        }
-
-        $message = DB::connection('communications')->transaction(function () use ($groupId, $senderActorId, $data, $group) {
-
-            $message = GroupMessage::create([
-                'group_id'          => $groupId,
-                'sender_actor_id'   => $senderActorId,
-                'content'           => $data['content'] ?? null,
-                'content_type'      => $data['content_type'] ?? 'text',
-                'reply_to_id'       => $data['reply_to_id'] ?? null,
-                'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
-                'forwarded'         => isset($data['forwarded_from_id']),
-                'latitude'          => $data['latitude'] ?? null,
-                'longitude'         => $data['longitude'] ?? null,
-            ]);
-
-            $group->update([
-                'last_message_id' => $message->id,
-                'last_message_at' => now(),
-            ]);
-
-            return $message->fresh(['attachments', 'reactions']);
-        });
-
-        return $this->formatMessage($message);
+    if (! $group->hasParticipant($senderActorId)) {
+        throw new \RuntimeException('You are not a participant of this group.');
     }
+
+    if ($group->only_admins_can_message && ! $group->isAdmin($senderActorId)) {
+        throw new \RuntimeException('Only admins can send messages in this group.');
+    }
+
+    $message = DB::connection('communications')->transaction(function () use ($groupId, $senderActorId, $data, $group) {
+
+        $message = GroupMessage::create([
+            'group_id'          => $groupId,
+            'sender_actor_id'   => $senderActorId,
+            'content'           => $data['content'] ?? null,
+            'content_type'      => $data['content_type'] ?? 'text',
+            'reply_to_id'       => $data['reply_to_id'] ?? null,
+            'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
+            'forwarded'         => isset($data['forwarded_from_id']),
+            'latitude'          => $data['latitude'] ?? null,
+            'longitude'         => $data['longitude'] ?? null,
+        ]);
+
+        // Link any pre-uploaded attachments to this message
+        if (!empty($data['attachment_ids'])) {
+            \Modules\Communications\Models\MessageAttachment::whereIn('id', $data['attachment_ids'])
+                ->whereNull('message_id')  // safety: only unclaimed attachments
+                ->update([
+                    'message_type' => 'GroupMessage',
+                    'message_id'   => $message->id,
+                ]);
+        }
+
+        $group->update([
+            'last_message_id' => $message->id,
+            'last_message_at' => now(),
+        ]);
+
+        return $message->fresh(['attachments', 'reactions']);
+    });
+
+    return $this->formatMessage($message);
+}
 
     public function getMessages(string $groupId, int $perPage): LengthAwarePaginator
     {
@@ -335,10 +345,17 @@ class GroupService
         $replyToSenderName = null;
         $replyToContent    = null;
         if ($msg->reply_to_id) {
-            $replyTo = GroupMessage::find($msg->reply_to_id);
+            $replyTo = DirectMessage::find($msg->reply_to_id);
             if ($replyTo) {
                 $replyToSenderName = $this->resolveName($replyTo->sender_actor_id);
-                $replyToContent    = $replyTo->content;
+                // For image/document messages pass the attachment URL so
+                // Flutter can render a thumbnail in the reply preview.
+                if (in_array($replyTo->content_type, ['image', 'document'])) {
+                    $attachment = $replyTo->attachments()->first();
+                    $replyToContent = $attachment?->file_url ?? $replyTo->content;
+                } else {
+                    $replyToContent = $replyTo->content;
+                }
             }
         }
  
@@ -350,7 +367,7 @@ class GroupService
                 'url'      => $a->file_url ?? $a->url,
                 'file_url' => $a->file_url ?? $a->url,
                 'type'     => $a->type ?? 'image',
-                'name'     => $a->original_name ?? '',
+                'name'      => $a->file_name,
                 'size'     => $a->size ?? 0,
             ])->values()->all();
         }

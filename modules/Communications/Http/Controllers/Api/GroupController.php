@@ -6,10 +6,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Communications\Services\GroupService;
+use Modules\Notifications\Services\NotificationService;
 
 class GroupController extends Controller
 {
-    public function __construct(protected GroupService $groups) {}
+    public function __construct(
+        protected GroupService        $groups,
+        protected NotificationService $notifications,
+    ) {}
 
     /** POST /api/v1/communications/groups */
     public function store(Request $request): JsonResponse
@@ -43,6 +47,25 @@ class GroupController extends Controller
     public function send(Request $request, string $id): JsonResponse
     {
         $message = $this->groups->send($id, $request->user()->actor_id, $request->all());
+
+        // Notify all other participants in the group
+        $group = $this->groups->get($id);
+        $senderActorId = $request->user()->actor_id;
+        $senderName    = $request->user()->actor->display_name ?? 'Someone';
+
+        $recipientActorIds = collect($group->participants ?? [])
+            ->pluck('actor_id')
+            ->filter(fn($aid) => $aid !== $senderActorId)
+            ->values();
+
+        $this->notifications->sendToMany(
+            $recipientActorIds->toArray(),
+            'message.received',
+            $group->name ?? 'Group message',
+            "{$senderName}: " . ($request->input('content') ?? 'Sent a message.'),
+            ['ref_type' => 'group', 'ref_id' => $id],
+        );
+
         return response()->json(['message' => 'Message sent.', 'data' => $message], 201);
     }
 
@@ -51,6 +74,18 @@ class GroupController extends Controller
     {
         $request->validate(['actor_id' => ['required', 'string', 'size:26']]);
         $participant = $this->groups->addParticipant($id, $request->actor_id, $request->user()->actor_id);
+
+        // Notify the added participant
+        $group = $this->groups->get($id);
+        $this->notifications->send(
+            actorId: $request->actor_id,
+            type:    'group.added',
+            title:   'Added to group',
+            body:    'You have been added to the group: ' . ($group->name ?? 'a group') . '.',
+            refType: 'group',
+            refId:   $id,
+        );
+
         return response()->json(['message' => 'Participant added.', 'participant' => $participant], 201);
     }
 
@@ -90,7 +125,7 @@ class GroupController extends Controller
         return response()->json(['message' => 'Deleted for everyone.']);
     }
 
-        /** GET /api/v1/communications/groups */
+    /** GET /api/v1/communications/groups */
     public function index(Request $request): JsonResponse
     {
         return response()->json($this->groups->listForActor($request->user()->actor_id));

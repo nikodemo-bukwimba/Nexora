@@ -255,6 +255,13 @@ class AuthController extends Controller
                 }
             }
         }
+        \Log::info('AUTH_ME_DEBUG', [
+    'user' => $user->email,
+    'customer_id' => $customerId,
+    'customer_org_id' => $customerOrgId,
+    'root_org_id' => $rootOrgId,
+    'resolved_org_id' => $resolvedOrgId,
+]);
 
         return response()->json([
             'user' => [

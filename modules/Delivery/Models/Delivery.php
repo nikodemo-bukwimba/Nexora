@@ -25,6 +25,12 @@ class Delivery extends Model
         'receiver_name', 'receiver_location', 'receiver_phone',
         'status', 'notes', 'estimated_arrival',
         'delivered_at', 'cancelled_at',
+        // ── Invoice confirmation fields ─────────────────────────
+        'invoice_number',
+        'invoice_date',
+        'invoice_value',
+        'invoice_comment',
+        'signed_invoice_path',
     ];
  
     protected function casts(): array
@@ -38,6 +44,9 @@ class Delivery extends Model
             'estimated_arrival'    => 'datetime',
             'delivered_at'         => 'datetime',
             'cancelled_at'         => 'datetime',
+            // ── Invoice ────────────────────────────────────────
+            'invoice_date'         => 'date',
+            'invoice_value'        => 'decimal:2',
         ];
     }
  

@@ -50,6 +50,18 @@ class InventoryBatch extends InventoryModel
         return $this->hasMany(StockAlert::class, 'batch_id');
     }
 
+    // ── Cross-module relationships (Commerce) ──────────────────
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Commerce\Models\Product::class, 'product_id', 'id');
+    }
+
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Commerce\Models\ProductVariant::class, 'variant_id', 'id');
+    }
+
     // ── Helpers ───────────────────────────────────────────────
 
     public function availableQuantity(): int

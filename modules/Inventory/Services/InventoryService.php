@@ -89,7 +89,7 @@ class InventoryService implements InventoryServiceInterface
             ->when(isset($filters['variant_id']),   fn($q) => $q->where('variant_id',   $filters['variant_id']))
             ->when(isset($filters['status']),       fn($q) => $q->where('status',       $filters['status']))
             ->when(isset($filters['sku']),          fn($q) => $q->where('sku', 'ilike', "%{$filters['sku']}%"))
-            ->with(['warehouse'])
+            ->with(['warehouse', 'product', 'variant'])
             ->orderBy('received_at', 'desc')
             ->paginate($perPage);
     }

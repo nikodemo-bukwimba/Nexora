@@ -15,10 +15,26 @@ use Modules\Platform\Models\Organization;
 class ProductUpdateController extends Controller
 {
     // ── GET /api/v1/pharma/orgs/{orgId}/product-updates ───────
+    //
+    // Visibility rules:
+    //   Root org promotion  → visible to the root org AND every branch.
+    //   Branch promotion    → visible only to that branch.
+    //
+    // So when a branch requests its product-updates, we include
+    // [branchId, rootOrgId]. When the root org requests its own,
+    // [rootOrgId] is sufficient (root === rootOrgId, no duplication).
 
     public function index(Request $request, string $orgId): JsonResponse
     {
-        $updates = ProductUpdate::where('org_id', $orgId)
+        $org = Organization::find($orgId);
+
+        $orgIds = [$orgId];
+
+        if ($org && $org->root_org_id && $org->root_org_id !== $orgId) {
+            $orgIds[] = $org->root_org_id;
+        }
+
+        $updates = ProductUpdate::whereIn('org_id', array_unique($orgIds))
             ->orderByDesc('created_at')
             ->paginate((int) $request->get('per_page', 25));
 
@@ -101,20 +117,23 @@ class ProductUpdateController extends Controller
 
     // ── POST /api/v1/pharma/product-updates/{id}/publish ──────
     //
-    // Scope rules (derived from actual data model):
+    // Scope rules (updated):
     //
-    //   Customers are ALWAYS created under the root org_id.
-    //   Branch association is carried via home_branch_id or assigned officer.
-    //
-    //   Root org promotion  → all customers where org_id = root_org_id
+    //   Root org promotion  → ALL customers in the org tree
+    //                         (WHERE org_id = root_org_id — every
+    //                          customer record lives at the root, this
+    //                          catches everyone regardless of branch).
     //
     //   Branch promotion    → customers where:
-    //                         (A) home_branch_id = branch_id
-    //                         (B) assigned officer's current branch_id = branch_id
+    //                         (A) assigned officer's CURRENT branch_id = branch_id  (Path A — wins)
+    //                         (B) home_branch_id = branch_id, only if (A) doesn't apply (Path B — fallback)
     //
-    //   Customers with no home_branch_id and no officer assigned,
-    //   or whose officer is at a different branch, are "unassigned"
-    //   and are only reached by root org promotions.
+    //   Priority: officer's current branch > home_branch_id > (root reaches all).
+    //   Officer transfers automatically handled: we use the officer's
+    //   current branch_id. previous_branch_id is never consulted.
+    //
+    //   A customer with no assigned officer and no home_branch_id is
+    //   only reached by root org promotions.
 
     public function publish(Request $request, string $id): JsonResponse
     {
@@ -216,22 +235,18 @@ class ProductUpdateController extends Controller
     /**
      * Resolve target customers based on the org that created the update.
      *
-     * Data model reality (confirmed from live data):
-     *   All customers have org_id = root org ID regardless of branch.
-     *   Branch association is only tracked via:
-     *     - home_branch_id (explicit assignment)
-     *     - assigned_officer_id → pm_officers.branch_id (via officer)
+     * Priority (updated):
+     *   Root org promotion:
+     *     WHERE org_id = root_org_id
+     *     Catches every customer — no ltree needed.
      *
-     * Root org promotion:
-     *   WHERE org_id = root_org_id
-     *   Catches every customer — no ltree needed.
+     *   Branch promotion:
+     *     Path A (wins): assigned officer's CURRENT branch_id = branch_id
+     *     Path B (fallback, only if Path A customer set doesn't already
+     *             include them): home_branch_id = branch_id
      *
-     * Branch promotion:
-     *   WHERE home_branch_id = branch_id          (Path A)
-     *      OR assigned officer's branch_id = branch_id  (Path B)
-     *
-     *   Officer transfers automatically handled: we use officer's
-     *   current branch_id. previous_branch_id is never consulted.
+     *   A customer reached via Path A is NOT re-evaluated against Path B —
+     *   officer assignment takes precedence over a stale home_branch_id.
      */
     private function resolveTargetCustomers(ProductUpdate $update): \Illuminate\Database\Eloquent\Collection
     {
@@ -246,14 +261,15 @@ class ProductUpdateController extends Controller
             return $this->applySegmentFilters($query, $update)->get();
         }
 
-        // ── Branch: Path A (home_branch_id) + Path B (officer) ─
+        // ── Branch: Path A (officer, wins) + Path B (home_branch_id, fallback) ─
         $branchId = $update->org_id;
 
-        // Resolve customer IDs via their officer's current branch (Path B).
-        // Done as a separate query to keep the Eloquent builder clean.
+        // Path A: customers whose assigned officer's CURRENT branch matches.
+        // These customers are fully resolved by officer assignment —
+        // their home_branch_id is irrelevant even if it points elsewhere.
         $customerIdsViaOfficer = DB::connection('pharma_marketing')
             ->table('pm_customers as c')
-            ->join('pm_officers as o', 'o.actor_id', '=', 'c.assigned_officer_id') 
+            ->join('pm_officers as o', 'o.actor_id', '=', 'c.assigned_officer_id')
             ->where('o.branch_id', $branchId)
             ->whereNull('o.deleted_at')
             ->whereNull('c.deleted_at')
@@ -264,13 +280,38 @@ class ProductUpdateController extends Controller
         $query = Customer::where('status', 'active')
             ->whereNull('deleted_at')
             ->where(function ($q) use ($branchId, $customerIdsViaOfficer) {
-                // Path A: explicitly assigned to this branch
-                $q->where('home_branch_id', $branchId);
-
-                // Path B: current officer works at this branch
+                // Path A: officer's current branch matches (wins)
                 if (!empty($customerIdsViaOfficer)) {
-                    $q->orWhereIn('id', $customerIdsViaOfficer);
+                    $q->whereIn('id', $customerIdsViaOfficer);
                 }
+
+                // Path B (fallback): home_branch_id matches AND the
+                // customer has no assigned officer (or wasn't already
+                // captured by Path A). Excluding officer-assigned
+                // customers here prevents a stale home_branch_id from
+                // re-including someone whose officer moved elsewhere.
+                $q->orWhere(function ($q2) use ($branchId, $customerIdsViaOfficer) {
+                    $q2->where('home_branch_id', $branchId);
+
+                    if (!empty($customerIdsViaOfficer)) {
+                        $q2->whereNotIn('id', $customerIdsViaOfficer);
+                    }
+
+                    // Only customers with no officer currently mapped to
+                    // a different branch should fall back to home_branch_id.
+                    // (Customers with an officer at a DIFFERENT branch are
+                    // excluded — their officer's branch wins for them too,
+                    // they just aren't targeted by THIS branch's promotion.)
+                    $q2->where(function ($q3) {
+                        $q3->whereNull('assigned_officer_id')
+                           ->orWhereNotExists(function ($sub) {
+                               $sub->select('id')
+                                   ->from('pm_officers')
+                                   ->whereColumn('pm_officers.actor_id', 'pm_customers.assigned_officer_id')
+                                   ->whereNull('pm_officers.deleted_at');
+                           });
+                    });
+                });
             });
 
         return $this->applySegmentFilters($query, $update)->get();

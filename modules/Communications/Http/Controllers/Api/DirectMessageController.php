@@ -6,10 +6,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Communications\Services\DirectMessageService;
+use Modules\Notifications\Services\NotificationService;
 
 class DirectMessageController extends Controller
 {
-    public function __construct(protected DirectMessageService $dms) {}
+    public function __construct(
+        protected DirectMessageService $dms,
+        protected NotificationService  $notifications,
+    ) {}
 
     /** GET /api/v1/communications/conversations */
     public function conversations(Request $request): JsonResponse
@@ -36,6 +40,23 @@ class DirectMessageController extends Controller
     {
         $request->validate(['content_type' => ['required', 'string']]);
         $message = $this->dms->send($conversationId, $request->user()->actor_id, $request->all());
+
+        // Notify the recipient
+        $conversation = $this->dms->getConversation($conversationId);
+        $recipientActorId = collect($conversation->participants ?? [])
+            ->firstWhere('actor_id', '!=', $request->user()->actor_id)['actor_id'] ?? null;
+
+        if ($recipientActorId) {
+            $this->notifications->send(
+                actorId: $recipientActorId,
+                type:    'message.received',
+                title:   'New message',
+                body:    $request->user()->actor->display_name . ' sent you a message.',
+                refType: 'conversation',
+                refId:   $conversationId,
+            );
+        }
+
         return response()->json(['message' => 'Message sent.', 'data' => $message], 201);
     }
 
@@ -68,7 +89,7 @@ class DirectMessageController extends Controller
         return response()->json(['message' => 'Reaction added.']);
     }
 
-        /** GET /api/v1/communications/conversations/{id} */
+    /** GET /api/v1/communications/conversations/{id} */
     public function show(string $conversationId): JsonResponse
     {
         return response()->json($this->dms->getConversation($conversationId));

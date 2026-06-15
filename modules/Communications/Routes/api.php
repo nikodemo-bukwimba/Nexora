@@ -6,6 +6,7 @@ use Modules\Communications\Http\Controllers\Api\CommunityController;
 use Modules\Communications\Http\Controllers\Api\DirectMessageController;
 use Modules\Communications\Http\Controllers\Api\GroupController;
 use Modules\Communications\Http\Controllers\Api\PresenceController;
+use Modules\Communications\Http\Controllers\Api\MessageAttachmentController;
 
 Route::middleware('auth:sanctum')->prefix('communications')->name('communications.')->group(function () {
 
@@ -25,6 +26,9 @@ Route::middleware('auth:sanctum')->prefix('communications')->name('communication
     Route::post('messages/dm/{id}/pin', [DirectMessageController::class, 'pinMessage'])->name('messages.dm.pin');
     Route::post('messages/dm/{id}/star', [DirectMessageController::class, 'starMessage'])->name('messages.dm.star');
     Route::get('messages/dm/{id}/receipts', [DirectMessageController::class, 'receipts'])->name('messages.dm.receipts');
+
+    // ── Message Attachments ───────────────────────────────────
+    Route::post('attachments/upload', [MessageAttachmentController::class, 'upload'])->name('attachments.upload');
 
     // ── Groups ─────────────────────────────────────────────────
     Route::post('groups', [GroupController::class, 'store'])->name('groups.store');

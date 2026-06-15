@@ -55,32 +55,42 @@ class DirectMessageService
         return $this->formatConversation($conv);
     }
 
-    public function send(string $conversationId, string $senderActorId, array $data): array
-    {
-        $message = DB::connection('communications')->transaction(function () use ($conversationId, $senderActorId, $data) {
-            $message = DirectMessage::create([
-                'conversation_id'   => $conversationId,
-                'sender_actor_id'   => $senderActorId,
-                'content'           => $data['content'] ?? null,
-                'content_type'      => $data['content_type'] ?? 'text',
-                'reply_to_id'       => $data['reply_to_id'] ?? null,
-                'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
-                'forwarded'         => isset($data['forwarded_from_id']),
-                'latitude'          => $data['latitude'] ?? null,
-                'longitude'         => $data['longitude'] ?? null,
-                'status'            => 'sent',
-            ]);
+public function send(string $conversationId, string $senderActorId, array $data): array
+{
+    $message = DB::connection('communications')->transaction(function () use ($conversationId, $senderActorId, $data) {
+        $message = DirectMessage::create([
+            'conversation_id'   => $conversationId,
+            'sender_actor_id'   => $senderActorId,
+            'content'           => $data['content'] ?? null,
+            'content_type'      => $data['content_type'] ?? 'text',
+            'reply_to_id'       => $data['reply_to_id'] ?? null,
+            'forwarded_from_id' => $data['forwarded_from_id'] ?? null,
+            'forwarded'         => isset($data['forwarded_from_id']),
+            'latitude'          => $data['latitude'] ?? null,
+            'longitude'         => $data['longitude'] ?? null,
+            'status'            => 'sent',
+        ]);
 
-            DirectConversation::where('id', $conversationId)->update([
-                'last_message_id' => $message->id,
-                'last_message_at' => now(),
-            ]);
+        // Link any pre-uploaded attachments to this message
+        if (!empty($data['attachment_ids'])) {
+            \Modules\Communications\Models\MessageAttachment::whereIn('id', $data['attachment_ids'])
+                ->whereNull('message_id')  // safety: only unclaimed attachments
+                ->update([
+                    'message_type' => 'DirectMessage',
+                    'message_id'   => $message->id,
+                ]);
+        }
 
-            return $message->fresh(['attachments', 'reactions']);
-        });
+        DirectConversation::where('id', $conversationId)->update([
+            'last_message_id' => $message->id,
+            'last_message_at' => now(),
+        ]);
 
-        return $this->formatMessage($message);
-    }
+        return $message->fresh(['attachments', 'reactions']);
+    });
+
+    return $this->formatMessage($message);
+}
 
     public function getMessages(string $conversationId, int $perPage): LengthAwarePaginator
     {
@@ -238,7 +248,14 @@ class DirectMessageService
             $replyTo = DirectMessage::find($msg->reply_to_id);
             if ($replyTo) {
                 $replyToSenderName = $this->resolveName($replyTo->sender_actor_id);
-                $replyToContent    = $replyTo->content;
+                // For image/document messages pass the attachment URL so
+                // Flutter can render a thumbnail in the reply preview.
+                if (in_array($replyTo->content_type, ['image', 'document'])) {
+                    $attachment = $replyTo->attachments()->first();
+                    $replyToContent = $attachment?->file_url ?? $replyTo->content;
+                } else {
+                    $replyToContent = $replyTo->content;
+                }
             }
         }
  
@@ -250,7 +267,7 @@ class DirectMessageService
                 'url'      => $a->file_url ?? $a->url,
                 'file_url' => $a->file_url ?? $a->url,
                 'type'     => $a->type ?? 'image',
-                'name'     => $a->original_name ?? '',
+                'name'      => $a->file_name,
                 'size'     => $a->size ?? 0,
             ])->values()->all();
         }
