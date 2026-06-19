@@ -10,6 +10,7 @@ use Modules\Communications\Models\GroupParticipant;
 use Modules\Communications\Models\MessageReaction;
 use Modules\Communications\Models\MessageReceipt;
 use Modules\Communications\Traits\ActorNameResolver;
+use Modules\Communications\Models\DirectMessage;
 
 class GroupService
 {
@@ -345,7 +346,7 @@ public function send(string $groupId, string $senderActorId, array $data): array
         $replyToSenderName = null;
         $replyToContent    = null;
         if ($msg->reply_to_id) {
-            $replyTo = DirectMessage::find($msg->reply_to_id);
+            $replyTo = GroupMessage::find($msg->reply_to_id);
             if ($replyTo) {
                 $replyToSenderName = $this->resolveName($replyTo->sender_actor_id);
                 // For image/document messages pass the attachment URL so

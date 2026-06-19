@@ -25,4 +25,16 @@ class StockReservation extends InventoryModel
 
     public function isActive(): bool    { return $this->status === 'active'; }
     public function isExpired(): bool   { return $this->expires_at && $this->expires_at->isPast(); }
+
+    /**
+     * Find all active reservations tied to a given ref (e.g. an Order
+     * that failed to commit). Used by InventoryDeductionService's
+     * failure-recovery path and by the stale-reservation sweep job.
+     */
+    public function scopeForRef($query, string $refType, string $refId)
+    {
+        return $query->where('ref_type', $refType)
+                      ->where('ref_id', $refId)
+                      ->where('status', 'active');
+    }
 }

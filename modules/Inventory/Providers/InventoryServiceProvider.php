@@ -10,6 +10,7 @@ use Modules\Inventory\Contracts\Services\WarehouseServiceInterface;
 use Modules\Inventory\Services\InventoryService;
 use Modules\Inventory\Services\StockAlertService;
 use Modules\Inventory\Services\WarehouseService;
+use Modules\Inventory\Console\ReleaseExpiredReservationsCommand;
 
 class InventoryServiceProvider extends ServiceProvider
 {
@@ -30,5 +31,11 @@ class InventoryServiceProvider extends ServiceProvider
              ->prefix('api/v1')
              ->name('api.')
              ->group(__DIR__ . '/../Routes/api.php');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Modules\Inventory\Console\ReleaseExpiredReservationsCommand::class,
+            ]);
+        }
     }
 }

@@ -3,7 +3,9 @@
 namespace Modules\Commerce\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\Inventory\Contracts\Services\InventoryServiceInterface;
+use Modules\Inventory\Models\StockReservation;
 
 class InventoryDeductionService
 {
@@ -11,38 +13,103 @@ class InventoryDeductionService
         protected InventoryServiceInterface $inventory,
     ) {}
 
-    public function deductForOrder(
+    /**
+     * Reserve stock for every trackable item in the order.
+     *
+     * IMPORTANT: this no longer deducts quantity_available directly.
+     * It only places a StockReservation (increments quantity_reserved),
+     * which is reversible. Call fulfillReservations() once the Commerce
+     * transaction has actually committed, or releaseReservations() if
+     * it didn't.
+     *
+     * Returns the list of reservation IDs created, so the caller can
+     * fulfill or release them after the Commerce transaction resolves.
+     *
+     * @return string[] reservation IDs
+     */
+    public function reserveForOrder(
         string $orgId,
         string $orderId,
-        string $performedBy,
         array  $items,
-    ): void {
+    ): array {
+        $reservationIds = [];
+
         foreach ($items as $item) {
             if (empty($item['track_inventory'])) {
                 continue;
             }
 
-            $this->deductItem(
-                orgId:       $orgId,
-                orderId:     $orderId,
-                performedBy: $performedBy,
-                productId:   $item['product_id'],
-                variantId:   $item['variant_id'] ?? null,
-                variantName: $item['variant_name'],
-                quantity:    (int) $item['quantity'],
+            $reservationIds = array_merge(
+                $reservationIds,
+                $this->reserveItem(
+                    orgId:       $orgId,
+                    orderId:     $orderId,
+                    productId:   $item['product_id'],
+                    variantId:   $item['variant_id'] ?? null,
+                    variantName: $item['variant_name'],
+                    quantity:    (int) $item['quantity'],
+                )
             );
+        }
+
+        return $reservationIds;
+    }
+
+    /**
+     * Fulfill a batch of reservations — the actual quantity_available
+     * decrement + 'sold' movement log happens here. Call this ONLY
+     * after the order row has actually committed to the database.
+     */
+    public function fulfillReservations(array $reservationIds): void
+    {
+        foreach ($reservationIds as $id) {
+            try {
+                $this->inventory->fulfillReservation($id);
+            } catch (\Throwable $e) {
+                // A reservation failing to fulfill post-commit is a data
+                // integrity concern, not a request-failure concern — the
+                // order already exists. Log loudly so ops can reconcile,
+                // but never throw here: the customer's order succeeded.
+                Log::error("InventoryDeductionService: failed to fulfill reservation {$id}: " . $e->getMessage());
+            }
         }
     }
 
-    private function deductItem(
+    /**
+     * Release a batch of reservations — used when the order failed to
+     * commit (or any later step failed) so the held stock is returned
+     * to availability immediately rather than waiting for expiry.
+     */
+    public function releaseReservations(array $reservationIds): void
+    {
+        foreach ($reservationIds as $id) {
+            try {
+                $this->inventory->releaseReservation($id);
+            } catch (\Throwable $e) {
+                Log::warning("InventoryDeductionService: failed to release reservation {$id}: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Release all active reservations tied to a ref (order). Safety-net
+     * for callers that don't have the reservation IDs in hand (e.g. a
+     * cleanup job sweeping orders that never reached 'confirmed').
+     */
+    public function releaseAllForRef(string $refType, string $refId): void
+    {
+        $ids = StockReservation::forRef($refType, $refId)->pluck('id')->all();
+        $this->releaseReservations($ids);
+    }
+
+    private function reserveItem(
         string  $orgId,
         string  $orderId,
-        string  $performedBy,
         string  $productId,
         ?string $variantId,
         string  $variantName,
         int     $quantity,
-    ): void {
+    ): array {
         // ── Step 1: resolve batches ────────────────────────────
         // Priority: branch own stock → branch product-level → root stock → root product-level.
         // This allows centrally-received stock (root org) to be consumed by branches.
@@ -83,27 +150,42 @@ class InventoryDeductionService
             );
         }
 
-        // ── Step 3: FEFO drain ────────────────────────────────
-        $remaining = $quantity;
+        // ── Step 3: FEFO reserve, splitting across batches if needed ──
+        $remaining       = $quantity;
+        $reservationIds  = [];
+        $createdSoFar    = [];
 
-        foreach ($batches as $batch) {
-            if ($remaining <= 0) break;
+        try {
+            foreach ($batches as $batch) {
+                if ($remaining <= 0) break;
 
-            $batchAvailable = $batch->quantity_available - $batch->quantity_reserved;
-            if ($batchAvailable <= 0) continue;
+                $batchAvailable = $batch->quantity_available - $batch->quantity_reserved;
+                if ($batchAvailable <= 0) continue;
 
-            $toDeduct  = min($remaining, $batchAvailable);
-            $remaining -= $toDeduct;
+                $toReserve = min($remaining, $batchAvailable);
+                $remaining -= $toReserve;
 
-            $this->inventory->adjustStock(
-                batchId:       $batch->id,
-                quantityDelta: -$toDeduct,
-                type:          'sold',
-                performedBy:   $performedBy,
-                refType:       'Order',
-                refId:         $orderId,
-                notes:         "Deducted on order {$orderId}",
-            );
+                $reservation = $this->inventory->reserve(
+                    batchId:   $batch->id,
+                    quantity:  $toReserve,
+                    refType:   'Order',
+                    refId:     $orderId,
+                    expiresAt: now()->addMinutes(30)->toISOString(),
+                );
+
+                $reservationIds[] = $reservation->id;
+                $createdSoFar[]   = $reservation->id;
+            }
+        } catch (\Throwable $e) {
+            // Partial reservation across batches failed midway (e.g. a
+            // race condition between the pre-flight check and the actual
+            // reserve calls). Roll back what we already reserved for
+            // THIS item before propagating, so we don't leave orphaned
+            // holds on other batches.
+            $this->releaseReservations($createdSoFar);
+            throw $e;
         }
+
+        return $reservationIds;
     }
 }

@@ -28,87 +28,107 @@ class OrderService
      */
     public function checkout(string $buyerActorId, array $options = []): array
     {
-        return DB::connection('commerce')->transaction(function () use ($buyerActorId, $options) {
+        try {
+            [$orders, $reservationIds] = DB::connection('commerce')->transaction(function () use ($buyerActorId, $options) {
 
-            $basket = Basket::where('buyer_actor_id', $buyerActorId)
-                ->where('status', 'active')
-                ->with(['items.variant.product'])
-                ->firstOrFail();
+                $basket = Basket::where('buyer_actor_id', $buyerActorId)
+                    ->where('status', 'active')
+                    ->with(['items.variant.product'])
+                    ->firstOrFail();
 
-            if ($basket->items->isEmpty()) {
-                throw new \RuntimeException('Basket is empty.');
-            }
+                if ($basket->items->isEmpty()) {
+                    throw new \RuntimeException('Basket is empty.');
+                }
 
-            $orders = [];
+                $orders            = [];
+                $allReservationIds = [];
 
-            foreach ($basket->items->groupBy('seller_actor_id') as $sellerActorId => $items) {
-                $subtotal = $items->sum(fn($i) => $i->quantity * $i->unit_price);
-                $currency = $items->first()->currency;
+                foreach ($basket->items->groupBy('seller_actor_id') as $sellerActorId => $items) {
+                    $subtotal = $items->sum(fn($i) => $i->quantity * $i->unit_price);
+                    $currency = $items->first()->currency;
 
-                $order = Order::create([
-                    'order_number'     => $this->generateOrderNumber(),
-                    'basket_id'        => $basket->id,
-                    'buyer_actor_id'   => $buyerActorId,
-                    'seller_actor_id'  => $sellerActorId,
-                    'buyer_org_id'     => $options['buyer_org_id'] ?? null,
-                    'seller_org_id'    => $items->first()->variant->product->org_id,
-                    'status'           => 'pending',
-                    'subtotal'         => $subtotal,
-                    'shipping_amount'  => $options['shipping_amount'] ?? 0,
-                    'tax_amount'       => 0,
-                    'discount_amount'  => 0,
-                    'total'            => $subtotal + ($options['shipping_amount'] ?? 0),
-                    'currency'         => $currency,
-                    'shipping_address' => $options['shipping_address'] ?? null,
-                    'billing_address'  => $options['billing_address'] ?? null,
-                ]);
-
-                foreach ($items as $item) {
-                    OrderItem::create([
-                        'order_id'        => $order->id,
-                        'variant_id'      => $item->variant_id,
-                        'product_id'      => $item->variant->product_id,
-                        'product_name'    => $item->variant->product->name,
-                        'variant_name'    => $item->variant->name,
-                        'sku'             => $item->variant->sku,
-                        'quantity'        => $item->quantity,
-                        'unit_price'      => $item->unit_price,
-                        'subtotal'        => $item->quantity * $item->unit_price,
-                        'discount_amount' => 0,
-                        'total'           => $item->quantity * $item->unit_price,
-                        'currency'        => $item->currency,
+                    $order = Order::create([
+                        'order_number'     => $this->generateOrderNumber(),
+                        'basket_id'        => $basket->id,
+                        'buyer_actor_id'   => $buyerActorId,
+                        'seller_actor_id'  => $sellerActorId,
+                        'buyer_org_id'     => $options['buyer_org_id'] ?? null,
+                        'seller_org_id'    => $items->first()->variant->product->org_id,
+                        'status'           => 'pending',
+                        'subtotal'         => $subtotal,
+                        'shipping_amount'  => $options['shipping_amount'] ?? 0,
+                        'tax_amount'       => 0,
+                        'discount_amount'  => 0,
+                        'total'            => $subtotal + ($options['shipping_amount'] ?? 0),
+                        'currency'         => $currency,
+                        'shipping_address' => $options['shipping_address'] ?? null,
+                        'billing_address'  => $options['billing_address'] ?? null,
                     ]);
+
+                    foreach ($items as $item) {
+                        OrderItem::create([
+                            'order_id'        => $order->id,
+                            'variant_id'      => $item->variant_id,
+                            'product_id'      => $item->variant->product_id,
+                            'product_name'    => $item->variant->product->name,
+                            'variant_name'    => $item->variant->name,
+                            'sku'             => $item->variant->sku,
+                            'quantity'        => $item->quantity,
+                            'unit_price'      => $item->unit_price,
+                            'subtotal'        => $item->quantity * $item->unit_price,
+                            'discount_amount' => 0,
+                            'total'           => $item->quantity * $item->unit_price,
+                            'currency'        => $item->currency,
+                        ]);
+                    }
+
+                // ── Inventory reservation (FEFO, track_inventory-gated) ──
+                    // Reserves stock only (quantity_reserved) — does NOT
+                    // decrement quantity_available. Actual fulfillment happens
+                    // after this transaction commits, see below, to avoid the
+                    // cross-connection atomicity gap between 'commerce' and
+                    // 'inventory' database connections.
+                    $deductionItems = $items->map(fn($item) => [
+                        'product_id'      => $item->variant->product_id,
+                        'variant_id'      => $item->variant_id,          // ← variant-level
+                        'variant_name'    => $item->variant->name,
+                        'quantity'        => $item->quantity,
+                        'track_inventory' => $item->variant->product->track_inventory,
+                    ])->all();
+
+                    $reservationIds = $this->inventoryDeduction->reserveForOrder(
+                        orgId:   $items->first()->variant->product->org_id,
+                        orderId: $order->id,
+                        items:   $deductionItems,
+                    );
+                    $allReservationIds = array_merge($allReservationIds, $reservationIds);
+                    // ── End inventory reservation ───────────────────────────
+
+                    $requiresConfirmation = $items->first()->variant->product->requires_confirmation;
+                    if (! $requiresConfirmation) {
+                        $order->update(['status' => 'confirmed', 'confirmed_at' => now()]);
+                    }
+
+                    $orders[] = $order->fresh(['items']);
                 }
 
-                // ── Inventory deduction (FEFO, track_inventory-gated) ──
-                $deductionItems = $items->map(fn($item) => [
-                    'product_id'      => $item->variant->product_id,
-                    'variant_id'      => $item->variant_id,          // ← variant-level
-                    'variant_name'    => $item->variant->name,
-                    'quantity'        => $item->quantity,
-                    'track_inventory' => $item->variant->product->track_inventory,
-                ])->all();
+                $basket->update(['status' => 'checked_out']);
 
-                $this->inventoryDeduction->deductForOrder(
-                    orgId:       $items->first()->variant->product->org_id,
-                    orderId:     $order->id,
-                    performedBy: $buyerActorId,
-                    items:       $deductionItems,
-                );
-                // ── End inventory deduction ────────────────────────────
+                return [$orders, $allReservationIds];
+            });
+        } catch (\Throwable $e) {
+            // reservationIds isn't accessible here since it's scoped inside
+            // the failed closure — this case is exactly what the scheduled
+            // sweep (ReleaseExpiredReservationsCommand) exists to catch.
+            throw $e;
+        }
+        // ── Transaction committed — fulfill all reservations now ──
+        // Point of no return: every order in this checkout exists, so
+        // we decrement quantity_available for real. Logged, not thrown,
+        // on partial failure — the orders already succeeded.
+        $this->inventoryDeduction->fulfillReservations($reservationIds);
 
-                $requiresConfirmation = $items->first()->variant->product->requires_confirmation;
-                if (! $requiresConfirmation) {
-                    $order->update(['status' => 'confirmed', 'confirmed_at' => now()]);
-                }
-
-                $orders[] = $order->fresh(['items']);
-            }
-
-            $basket->update(['status' => 'checked_out']);
-
-            return $orders;
-        });
+        return $orders;
     }
 
     public function get(string $id): Order

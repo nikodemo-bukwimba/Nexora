@@ -180,11 +180,19 @@ class OrderController extends Controller
             ]
         );
 
-        // ── Persist + deduct stock (single transaction) ──────────
+
+    // ── Persist order, reserve stock (single Commerce transaction) ──
+        // Reservation only HOLDS stock (quantity_reserved) — it does not
+        // touch quantity_available. The actual decrement happens in
+        // fulfillReservations() below, AFTER this transaction has
+        // committed, which avoids the cross-connection atomicity gap
+        // between the 'commerce' and 'inventory' database connections.
+        $reservationIds = [];
+
         try {
             $order = \DB::connection('commerce')->transaction(function () use (
                 $validated, $orgId, $buyerOrgId, $sellerActorId, $buyerActorId,
-                $orderItems, $deductionItems, $subtotal, $metadata
+                $orderItems, $deductionItems, $subtotal, $metadata, &$reservationIds
             ) {
                 $order = \Modules\Commerce\Models\Order::create([
                     'seller_org_id'   => $orgId,
@@ -204,23 +212,43 @@ class OrderController extends Controller
                     $order->items()->create($item);
                 }
 
-                // ── Inventory deduction grouped by product org (FEFO) ──
-                $byProductOrg = collect($deductionItems)->groupBy('product_org_id');
-
-                foreach ($byProductOrg as $inventoryOrgId => $items) {
-                    $this->inventoryDeduction->deductForOrder(
-                        orgId:       $orgId,
-                        orderId:     $order->id,
-                        performedBy: $sellerActorId,
-                        items:       $deductionItems,
-                    );
-                }
+                // Reserve stock for the order. Throws RuntimeException on
+                // insufficient stock, which rolls back the Commerce
+                // transaction (order/order_items never persist) — no
+                // reservation rows survive either, since they're on a
+                // different connection but we explicitly release any
+                // partial reservations inside reserveForOrder() on failure.
+                $reservationIds = $this->inventoryDeduction->reserveForOrder(
+                    orgId:   $orgId,
+                    orderId: $order->id,
+                    items:   $deductionItems,
+                );
 
                 return $order;
             });
         } catch (\RuntimeException $e) {
+            if (! empty($reservationIds)) {
+                $this->inventoryDeduction->releaseReservations($reservationIds);
+            }
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            // Non-stock failure (DB error, etc.) after reservations were
+            // already made. Release them immediately rather than waiting
+            // for the expiry sweep, then re-throw so normal error
+            // handling/logging for unexpected exceptions still applies.
+            if (! empty($reservationIds)) {
+                $this->inventoryDeduction->releaseReservations($reservationIds);
+            }
+            throw $e;
         }
+
+        // ── Commerce transaction committed — fulfill the reservations ──
+        // This is the point of no return: the order definitely exists,
+        // so we now actually decrement quantity_available. If this step
+        // partially fails, the order still stands (correct — the
+        // customer's purchase succeeded) and failures are logged for
+        // ops reconciliation rather than surfaced to the customer.
+        $this->inventoryDeduction->fulfillReservations($reservationIds);
 
         if ($buyerActorId) {
             $this->notifications->send(
