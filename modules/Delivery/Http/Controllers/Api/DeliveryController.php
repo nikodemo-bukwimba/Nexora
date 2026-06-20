@@ -19,7 +19,6 @@ class DeliveryController extends Controller
         protected NotificationService $notifications,
     ) {}
 
-    // ── Valid status transitions ────────────────────────────────
     private const TRANSITIONS = [
         'pending'    => ['in_transit', 'cancelled'],
         'in_transit' => ['delivered',  'failed', 'cancelled'],
@@ -27,17 +26,23 @@ class DeliveryController extends Controller
     ];
 
     // ── GET /api/v1/orgs/{orgId}/deliveries ────────────────────
+    //
+    // scopeOrgIds is set by EnsureOrgScope:
+    //   Root admin  → [rootId, branch1Id, branch2Id, ...]
+    //   Branch user → [branchId]
 
     public function index(Request $request, string $orgId): JsonResponse
     {
-        $deliveries = Delivery::forOrg($orgId)
+        $scopeOrgIds = $request->scopeOrgIds;
+
+        $deliveries = Delivery::whereIn('org_id', $scopeOrgIds)
             ->when($request->status, fn($q, $v) => $q->where('status', $v))
             ->when($request->search, fn($q, $v) =>
                 $q->where(fn($q2) =>
-                    $q2->where('receiver_name',    'ilike', "%{$v}%")
-                       ->orWhere('sender_name',    'ilike', "%{$v}%")
-                       ->orWhere('car_registration','ilike', "%{$v}%")
-                       ->orWhere('tracking_number', 'ilike', "%{$v}%")
+                    $q2->where('receiver_name',     'ilike', "%{$v}%")
+                       ->orWhere('sender_name',     'ilike', "%{$v}%")
+                       ->orWhere('car_registration', 'ilike', "%{$v}%")
+                       ->orWhere('tracking_number',  'ilike', "%{$v}%")
                 ))
             ->orderByDesc('created_at')
             ->paginate((int) $request->get('per_page', 50));
@@ -49,6 +54,8 @@ class DeliveryController extends Controller
 
     public function store(Request $request, string $orgId): JsonResponse
     {
+        $effectiveOrgId = $request->effectiveOrgId;
+
         $data = $request->validate([
             'order_id'          => ['nullable', 'string'],
             'transporter_name'  => ['required', 'string', 'max:255'],
@@ -66,7 +73,7 @@ class DeliveryController extends Controller
             'estimated_arrival' => ['nullable', 'date'],
         ]);
 
-        $delivery = Delivery::create(array_merge($data, ['org_id' => $orgId]));
+        $delivery = Delivery::create(array_merge($data, ['org_id' => $effectiveOrgId]));
 
         return response()->json([
             'message'  => 'Delivery created.',
@@ -76,9 +83,9 @@ class DeliveryController extends Controller
 
     // ── GET /api/v1/orgs/{orgId}/deliveries/{id} ───────────────
 
-    public function show(string $orgId, string $id): JsonResponse
+    public function show(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
         return response()->json(['delivery' => $delivery]);
     }
 
@@ -86,7 +93,7 @@ class DeliveryController extends Controller
 
     public function update(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
 
         $data = $request->validate([
             'transporter_name'  => ['sometimes', 'string', 'max:255'],
@@ -102,7 +109,6 @@ class DeliveryController extends Controller
             'receiver_phone'    => ['nullable',  'string', 'max:20'],
             'notes'             => ['nullable',  'string', 'max:1000'],
             'estimated_arrival' => ['nullable',  'date'],
-            // Invoice fields are editable by admin before confirm
             'invoice_number'    => ['sometimes', 'nullable', 'string', 'max:100'],
             'invoice_date'      => ['sometimes', 'nullable', 'date'],
             'invoice_value'     => ['sometimes', 'nullable', 'numeric', 'min:0'],
@@ -118,13 +124,10 @@ class DeliveryController extends Controller
     }
 
     // ── POST /api/v1/orgs/{orgId}/deliveries/{id}/confirm ──────
-    //
-    //  Customer-side confirmation: invoice details + signed document.
-    //  Transitions delivery to 'delivered' and syncs Commerce.
 
     public function confirm(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
 
         if ($delivery->status !== 'in_transit') {
             return response()->json([
@@ -156,24 +159,15 @@ class DeliveryController extends Controller
 
         if ($delivery->order_id) {
             try {
-                DB::connection('commerce')
-                    ->table('orders')
+                DB::connection('commerce')->table('orders')
                     ->where('id', $delivery->order_id)
                     ->update(['status' => 'delivered', 'updated_at' => now()]);
 
-                DB::connection('commerce')
-                    ->table('order_fulfillments')
+                DB::connection('commerce')->table('order_fulfillments')
                     ->where('order_id', $delivery->order_id)
-                    ->update([
-                        'status'       => 'delivered',
-                        'delivered_at' => now(),
-                        'updated_at'   => now(),
-                    ]);
+                    ->update(['status' => 'delivered', 'delivered_at' => now(), 'updated_at' => now()]);
             } catch (\Throwable $e) {
-                Log::warning(
-                    "Delivery confirm: failed to sync commerce order {$delivery->order_id}: "
-                    . $e->getMessage()
-                );
+                Log::warning("Delivery confirm: failed to sync commerce order {$delivery->order_id}: " . $e->getMessage());
             }
 
             $this->notifyBuyerForTransition($delivery->fresh(), 'delivered');
@@ -189,11 +183,10 @@ class DeliveryController extends Controller
 
     public function transition(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
 
         $request->validate([
-            'status' => ['required', 'string',
-                'in:pending,in_transit,delivered,cancelled,failed'],
+            'status' => ['required', 'string', 'in:pending,in_transit,delivered,cancelled,failed'],
         ]);
 
         $newStatus = $request->status;
@@ -206,54 +199,27 @@ class DeliveryController extends Controller
         }
 
         $extra = [];
-
-        if ($newStatus === 'delivered') {
-            $extra['delivered_at'] = now();
-        }
-
-        if ($newStatus === 'cancelled') {
-            $extra['cancelled_at'] = now();
-        }
+        if ($newStatus === 'delivered') $extra['delivered_at'] = now();
+        if ($newStatus === 'cancelled') $extra['cancelled_at'] = now();
 
         $delivery->update(array_merge(['status' => $newStatus], $extra));
 
-        /*
-        |--------------------------------------------------------------------------
-        | Sync Commerce Order Status
-        |--------------------------------------------------------------------------
-        */
         if ($delivery->order_id) {
-
-            $commerceStatusMap = [
-                'in_transit' => 'shipped',
-                'delivered'  => 'delivered',
-            ];
+            $commerceStatusMap = ['in_transit' => 'shipped', 'delivered' => 'delivered'];
 
             if (isset($commerceStatusMap[$newStatus])) {
                 try {
-                    DB::connection('commerce')
-                        ->table('orders')
+                    DB::connection('commerce')->table('orders')
                         ->where('id', $delivery->order_id)
-                        ->update([
-                            'status'     => $commerceStatusMap[$newStatus],
-                            'updated_at' => now(),
-                        ]);
+                        ->update(['status' => $commerceStatusMap[$newStatus], 'updated_at' => now()]);
 
                     if ($newStatus === 'delivered') {
-                        DB::connection('commerce')
-                            ->table('order_fulfillments')
+                        DB::connection('commerce')->table('order_fulfillments')
                             ->where('order_id', $delivery->order_id)
-                            ->update([
-                                'status'       => 'delivered',
-                                'delivered_at' => now(),
-                                'updated_at'   => now(),
-                            ]);
+                            ->update(['status' => 'delivered', 'delivered_at' => now(), 'updated_at' => now()]);
                     }
                 } catch (\Throwable $e) {
-                    Log::warning(
-                        "Delivery: failed to sync commerce order {$delivery->order_id}: "
-                        . $e->getMessage()
-                    );
+                    Log::warning("Delivery: failed to sync commerce order {$delivery->order_id}: " . $e->getMessage());
                 }
             }
 
@@ -270,7 +236,7 @@ class DeliveryController extends Controller
 
     public function updateLocation(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
 
         if ($delivery->isTerminal()) {
             return response()->json(['message' => 'Delivery is terminal.'], 422);
@@ -294,7 +260,7 @@ class DeliveryController extends Controller
 
     public function uploadImages(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
 
         $request->validate([
             'parcel_image'  => ['nullable', 'image', 'max:5120'],
@@ -305,14 +271,12 @@ class DeliveryController extends Controller
         $disk    = config('delivery.media_disk', 'public');
 
         if ($request->hasFile('parcel_image')) {
-            $path = $request->file('parcel_image')
-                ->store("deliveries/{$id}/parcel", $disk);
+            $path = $request->file('parcel_image')->store("deliveries/{$id}/parcel", $disk);
             $updates['parcel_image_path'] = Storage::disk($disk)->url($path);
         }
 
         if ($request->hasFile('waybill_image')) {
-            $path = $request->file('waybill_image')
-                ->store("deliveries/{$id}/waybill", $disk);
+            $path = $request->file('waybill_image')->store("deliveries/{$id}/waybill", $disk);
             $updates['waybill_image_path'] = Storage::disk($disk)->url($path);
         }
 
@@ -331,14 +295,14 @@ class DeliveryController extends Controller
 
     // ── DELETE /api/v1/orgs/{orgId}/deliveries/{id} ────────────
 
-    public function destroy(string $orgId, string $id): JsonResponse
+    public function destroy(Request $request, string $orgId, string $id): JsonResponse
     {
-        $delivery = Delivery::forOrg($orgId)->findOrFail($id);
+        $delivery = Delivery::whereIn('org_id', $request->scopeOrgIds)->findOrFail($id);
         $delivery->delete();
         return response()->json(['message' => 'Delivery deleted.']);
     }
 
-    // ── GET /api/v1/track/{trackingNumber}  (PUBLIC — no auth) ──
+    // ── GET /api/v1/track/{trackingNumber}  (PUBLIC) ────────────
 
     public function publicTrack(string $trackingNumber): JsonResponse
     {
@@ -364,9 +328,7 @@ class DeliveryController extends Controller
                 ->select('buyer_actor_id', 'order_number')
                 ->first();
 
-            if (! $order?->buyer_actor_id) {
-                return;
-            }
+            if (! $order?->buyer_actor_id) return;
 
             [$type, $title, $body] = match ($newStatus) {
                 'in_transit' => [
@@ -393,9 +355,7 @@ class DeliveryController extends Controller
                 default => [null, null, null],
             };
 
-            if (! $type) {
-                return;
-            }
+            if (! $type) return;
 
             $this->notifications->send(
                 actorId: $order->buyer_actor_id,

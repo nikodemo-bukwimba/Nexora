@@ -4,6 +4,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Modules\Delivery\Http\Controllers\Api\DeliveryController;
+use Modules\Delivery\Http\Middleware\EnsureOrgScope;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,8 +17,8 @@ use Modules\Delivery\Http\Controllers\Api\DeliveryController;
 Route::get('track/{trackingNumber}', [DeliveryController::class, 'publicTrack'])
     ->name('delivery.track.public');
 
-// ── Org-scoped delivery endpoints — auth required ───────────────────────
-Route::middleware('auth:sanctum')->group(function () {
+// ── Org-scoped delivery endpoints — auth + org-scope required ──────────
+Route::middleware(['auth:sanctum', EnsureOrgScope::class])->group(function () {
 
     Route::prefix('orgs/{orgId}/deliveries')
         ->name('delivery.')
@@ -34,8 +35,6 @@ Route::middleware('auth:sanctum')->group(function () {
                 [DeliveryController::class, 'transition'])->name('transition');
 
             // Customer delivery confirmation with invoice + signed document
-            // Multipart: invoice_number, invoice_date, invoice_value,
-            //            invoice_comment (optional), signed_invoice (file)
             Route::post('/{id}/confirm',
                 [DeliveryController::class, 'confirm'])->name('confirm');
 
