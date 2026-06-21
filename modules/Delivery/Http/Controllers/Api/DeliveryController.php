@@ -1,6 +1,10 @@
 <?php
 
 // === FILE: Modules/Delivery/Http/Controllers/Api/DeliveryController.php
+//
+//  CHANGE: store() now stamps created_by_id, created_by_name,
+//  and created_by_role from the authenticated user onto every
+//  new delivery record for accountability.
 
 namespace Modules\Delivery\Http\Controllers\Api;
 
@@ -26,10 +30,6 @@ class DeliveryController extends Controller
     ];
 
     // ── GET /api/v1/orgs/{orgId}/deliveries ────────────────────
-    //
-    // scopeOrgIds is set by EnsureOrgScope:
-    //   Root admin  → [rootId, branch1Id, branch2Id, ...]
-    //   Branch user → [branchId]
 
     public function index(Request $request, string $orgId): JsonResponse
     {
@@ -73,7 +73,26 @@ class DeliveryController extends Controller
             'estimated_arrival' => ['nullable', 'date'],
         ]);
 
-        $delivery = Delivery::create(array_merge($data, ['org_id' => $effectiveOrgId]));
+        // ── Resolve creator identity from the authenticated user ──
+        $user         = $request->user();
+        $creatorId    = $user->id;
+        $creatorName  = $user->actor?->display_name ?? $user->username ?? $user->email;
+
+        // Resolve the user's primary role name for this org tree
+        $creatorRole  = DB::connection('platform')
+            ->table('org_memberships as om')
+            ->join('org_roles as r', 'r.id', '=', 'om.org_role_id')
+            ->where('om.user_id', $user->id)
+            ->where('om.status', 'active')
+            ->orderByDesc('om.level')
+            ->value('r.name');
+
+        $delivery = Delivery::create(array_merge($data, [
+            'org_id'          => $effectiveOrgId,
+            'created_by_id'   => $creatorId,
+            'created_by_name' => $creatorName,
+            'created_by_role' => $creatorRole,
+        ]));
 
         return response()->json([
             'message'  => 'Delivery created.',

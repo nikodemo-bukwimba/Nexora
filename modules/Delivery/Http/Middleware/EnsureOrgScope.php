@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Platform\Contracts\Services\OrgScopeResolverInterface;
+use Modules\Platform\Models\Organization;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureOrgScope
@@ -30,7 +31,7 @@ class EnsureOrgScope
             return $next($request);
         }
 
-        // Load all active membership org IDs for this user
+        // ── Staff / admin path ─────────────────────────────────────────
         $memberOrgIds = DB::connection('platform')
             ->table('org_memberships')
             ->where('user_id', $user->id)
@@ -38,40 +39,59 @@ class EnsureOrgScope
             ->pluck('org_id')
             ->toArray();
 
-        if (empty($memberOrgIds)) {
-            return response()->json([
-                'message' => 'Forbidden. You have no active organization memberships.',
-            ], 403);
+        if (! empty($memberOrgIds)) {
+            $routeOrg = $this->scope->find($routeOrgId);
+
+            $hasAccess = in_array($routeOrgId, $memberOrgIds)
+                || ($routeOrg->root_org_id && in_array($routeOrg->root_org_id, $memberOrgIds));
+
+            if (! $hasAccess) {
+                return response()->json([
+                    'message' => 'Forbidden. You do not have access to this organization.',
+                ], 403);
+            }
+
+            $request->merge([
+                'effectiveOrgId' => $routeOrgId,
+                'scopeOrgIds'    => $this->scope->scopeIds($routeOrgId),
+                'actorRole'      => 'staff',
+            ]);
+
+            return $next($request);
         }
 
-        // Verify the user has access to the requested org —
-        // either as a direct member or as a root org member accessing a branch.
-        $routeOrg = $this->scope->find($routeOrgId);
+        // ── Customer bypass ────────────────────────────────────────────
+        // Customers have no org_membership but may read deliveries linked
+        // to their own orders. Deliveries may be stored under any branch,
+        // so scopeOrgIds must cover the full org tree (root + branches).
+        $rootOrgId = $this->scope->rootId($routeOrgId);
 
-        $hasAccess = in_array($routeOrgId, $memberOrgIds)
-            || ($routeOrg->root_org_id && in_array($routeOrg->root_org_id, $memberOrgIds));
+        $treeOrgIds = Organization::where('root_org_id', $rootOrgId)
+            ->orWhere('id', $rootOrgId)
+            ->pluck('id')
+            ->toArray();
 
-        if (! $hasAccess) {
+        $customer = DB::connection('pharma_marketing')
+            ->table('pm_customers')
+            ->where('platform_user_id', $user->id)
+            ->whereIn('org_id', $treeOrgIds)
+            ->first();
+
+        if (! $customer) {
             return response()->json([
                 'message' => 'Forbidden. You do not have access to this organization.',
             ], 403);
         }
 
-        // Resolve the effective scope using the same OrgScopeResolver
-        // used across all other modules:
-        //   Root member  → scopeIds returns entire tree (root + all branches)
-        //   Branch member → scopeIds returns [branchId] only
-        //
-        // The controller reads scopeOrgIds for list queries (whereIn)
-        // and effectiveOrgId for single-record writes (store/update/delete).
-        $scopeOrgIds    = $this->scope->scopeIds($routeOrgId);
-        $effectiveOrgId = $this->scope->isRoot($routeOrgId)
-            ? $routeOrgId   // root admin — writes go to root org
-            : $routeOrgId;  // branch user — writes go to their branch
-
+        // Give the customer read access across the full tree so they can
+        // find their delivery regardless of which branch org_id it was
+        // stored under.
         $request->merge([
-            'effectiveOrgId' => $effectiveOrgId,
-            'scopeOrgIds'    => $scopeOrgIds,
+            'effectiveOrgId'  => $rootOrgId,
+            'scopeOrgIds'     => $treeOrgIds,
+            'actorRole'       => 'customer',
+            'customerActorId' => $user->actor_id,
+            'customerId'      => $customer->id,
         ]);
 
         return $next($request);
